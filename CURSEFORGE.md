@@ -54,4 +54,8 @@ Install and enable [Sintezza Theme](https://github.com/ArtefactoO/Sintezza_Theme
 
 **OpenXP and Shortest Path example.** Enable the Sintezza waypoint and guide following in Shortest Path. When OpenXP advances to a supported step with a destination, Sintezza can pass that point to Shortest Path and use its walking route. The active OpenXP pointer can be hidden during routing and restored when the route ends.
 
+### Changelog
+
+[View the release history on GitHub](https://github.com/ArtefactoO/Sintezza_UI/blob/main/CHANGELOG.md).
+
 Source, installation details, and credits are available on [GitHub](https://github.com/ArtefactoO/Sintezza_UI).
