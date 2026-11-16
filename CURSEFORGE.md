@@ -20,9 +20,13 @@ Open `/sui` to configure the game bar, raid controls, combat and stealth alerts,
 
 Open **Features → Integrations** to see which addons are available and toggle the supported adaptations.
 
+### Appearance
+
+**Requires [Sintezza Theme](https://github.com/ArtefactoO/Sintezza_Theme).** Open `/stheme` to choose the palette and fonts for this addon's windows.
+
 ### Requirements
 
-Install and enable [Sintezza Theme](https://github.com/ArtefactoO/Sintezza_Theme). Open `/stheme` to change the palette and fonts used by this addon's windows. Each integration also needs its target addon and any listed companion. Sintezza's own modules can be used with Theme alone.
+Each integration also needs its target addon and any listed companion. Sintezza's own modules can be used with Theme alone.
 
 ## Integrated addons
 
