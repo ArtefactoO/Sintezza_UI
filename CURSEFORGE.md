@@ -22,7 +22,7 @@ Open **Features → Integrations** to see which addons are available and toggle 
 
 ### Requirements
 
-Install and enable [Sintezza Theme](https://github.com/ArtefactoO/Sintezza_Theme). Each integration also needs its target addon and any listed companion. Sintezza's own modules can be used with Theme alone.
+Install and enable [Sintezza Theme](https://github.com/ArtefactoO/Sintezza_Theme). Open `/stheme` to change the palette and fonts used by this addon's windows. Each integration also needs its target addon and any listed companion. Sintezza's own modules can be used with Theme alone.
 
 ## Integrated addons
 
