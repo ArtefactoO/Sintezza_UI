@@ -6,3 +6,5 @@ ignore:
   - AGENTS.md
   - "Media/CombatFonts/Custom/*.ttf"
   - "Media/CombatFonts/Custom/*.otf"
+required-dependencies:
+  - 1810657-sintezza-theme
