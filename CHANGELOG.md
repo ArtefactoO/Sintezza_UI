@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.153
+
+- Updated the project logo and in-game addon icon.
+
+### По-русски
+
+- Обновлены логотип проекта и игровая иконка аддона.
+
 ## 1.5.147
 
 - Localized the raid check window, nameplate status, and action-bar diagnostics in English and Russian.

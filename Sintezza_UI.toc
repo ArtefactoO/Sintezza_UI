@@ -4,7 +4,7 @@
 ## Notes-ruRU: Панели, оформление интерфейса и инструменты для рейдов.
 ## Author: Sintezza
 ## X-License: MIT
-## Version: 1.5.147
+## Version: 1.5.153
 ## SavedVariables: Sintezza_UIDB
 ## LoadSavedVariablesFirst: 1
 ## Dependencies: Sintezza_Theme
