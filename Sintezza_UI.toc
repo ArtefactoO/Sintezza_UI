@@ -1,0 +1,108 @@
+## Interface: 120100, 120105, 16001
+## Title: Sintezza UI
+## Notes: Unified local interface modules, panels, raid tools and compatibility fixes.
+## Notes-ruRU: Панели, оформление интерфейса и инструменты для рейдов.
+## Author: Sintezza
+## X-License: MIT
+## Version: 1.5.147
+## SavedVariables: Sintezza_UIDB
+## LoadSavedVariablesFirst: 1
+## Dependencies: Sintezza_Theme
+## OptionalDeps: EllesmereUI, EllesmereUIActionBars, EllesmereUICooldownManager, EllesmereUINameplates, DandersFrames, LibSharedMedia-3.0, SharedMediaAdditionalFonts, Lueur, EllesmereUIUnitFrames, EllesmereUIResourceBars, DoesItDieAdvanced, EllesmereUIAuraBuffReminders, EllesmereUIRaidFrames, Sintezza_UI_LocalFonts, FontMagic
+## IconTexture: Interface\AddOns\Sintezza_Theme\Media\Icons\Sintezza_UI
+
+Locales.lua
+Core.lua
+Database.lua
+Diagnostics.lua
+
+UI\Theme.lua
+UI\Widgets.lua
+UI\SettingsKeyboard.lua
+UI\HoverEffects.lua
+UI\SettingsBuilder.lua
+UI\Integrations.lua
+UI\SpellPicker.lua
+UI\Profiles.lua
+UI\Settings.lua
+UI\MinimapButton.lua
+
+Modules\GameBar\GameBar.lua
+Modules\GameBar\Compatibility.lua
+Modules\GameBar\ButtonRegistry.lua
+Modules\GameBar\Tooltip.lua
+Modules\GameBar\FadeController.lua
+Modules\GameBar\Layout.lua
+Modules\GameBar\MinimapBar.lua
+Modules\GameBar\Options.lua
+Modules\GameBar\MiniOptions.lua
+Modules\SpecBar\SpecBar.lua
+Modules\SpecBar\Options.lua
+
+Modules\CombatAlert\CombatAlert.lua
+Modules\CombatAlert\Variants.lua
+Modules\CombatAlert\EventSignalDisplay.lua
+Modules\CombatAlert\EventAlerts.lua
+Modules\CombatAlert\Options.lua
+
+Modules\TeleportPrompt\PortalCatalog.lua
+Modules\TeleportPrompt\TeleportPrompt.lua
+Modules\TeleportPrompt\Options.lua
+
+Modules\RaidTools\RaidTools.lua
+Modules\RaidTools\Compatibility.lua
+Modules\RaidTools\Media.lua
+Modules\RaidTools\FadeController.lua
+Modules\RaidTools\Bar\Registry.lua
+Modules\RaidTools\Bar\SecureActions.lua
+Modules\RaidTools\Bar\Layout.lua
+Modules\RaidTools\RaidCheck\Model.lua
+Modules\RaidTools\RaidCheck\ReadyState.lua
+Modules\RaidTools\RaidCheck\AuraScanner.lua
+Modules\RaidTools\RaidCheck\Window.lua
+Modules\RaidTools\Options.lua
+
+Modules\Fonts\FontCompatibility.lua
+Modules\Fonts\FrameShape.lua
+Modules\Fonts\FrameAppearance.lua
+Modules\Fonts\RoundedFrames.lua
+Modules\Fonts\DandersDispelShape.lua
+Modules\Fonts\ShapeOverlays.lua
+Modules\Fonts\TooltipFonts.lua
+Modules\Fonts\TacoTipFonts.lua
+Modules\Fonts\MeterNumbers.lua
+Modules\Fonts\CombatFont.lua
+Modules\Fonts\CombatFontOptions.lua
+
+Modules\Nameplates\Nameplates.lua
+Modules\Nameplates\BuffRows.lua
+Modules\Nameplates\Adapters.lua
+Modules\Nameplates\AuraCatalog.lua
+Modules\Nameplates\AuraRules.lua
+Modules\Nameplates\AuraText.lua
+Modules\Nameplates\Preview.lua
+Modules\Nameplates\Options.lua
+Modules\Nameplates\LueurCompatibility.lua
+
+Modules\CooldownMasks\CooldownMasks.lua
+Modules\CooldownMasks\ActionBarRange.lua
+Modules\CooldownMasks\BroadcasterGuard.lua
+Modules\CooldownMasks\CooldownEffects.lua
+Modules\CooldownMasks\Options.lua
+
+Modules\Fonts\Options.lua
+
+Modules\PartyMap\PartyMap.lua
+Modules\PartyMap\Options.lua
+Modules\MapDisplay.lua
+Modules\TransportMap\Docks.lua
+Modules\TransportMap\TransportMap.lua
+Modules\ChatWhisperErrors.lua
+Modules\MapWaypointControls.lua
+Modules\OpenXPLocalization.lua
+Modules\ShortestPathMinimap.lua
+
+Features.lua
+UI\MapOptions.lua
+UI\Features.lua
+Initialize.lua

@@ -1,0 +1,8 @@
+package-as: Sintezza_UI
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+ignore:
+  - AGENTS.md
+  - "Media/CombatFonts/Custom/*.ttf"
+  - "Media/CombatFonts/Custom/*.otf"
