@@ -1,4 +1,6 @@
 local _, SUI = ...
+if SUI.isForever then return end
+
 local M, W, B = SUI:GetModule("specBar"), SUI.Widgets, SUI.SettingsBuilder
 local Text = SUI.Text
 
@@ -6,7 +8,7 @@ local function P() return SUI:GetModuleProfile("specBar") end
 local function Add(page, card, widget) return B:AddRow(page, card, widget) end
 
 local function BuildPage(parent)
-    local title = SUI.isForever and Text("Панель талантов", "Talent bar") or Text("Панель специализаций", "Specialization bar")
+    local title = Text("Панель специализаций", "Specialization bar")
     local page = B:CreateTabbedPage(parent, title, nil, {
         { key = "general", title = Text("Основное", "General") },
         { key = "behavior", title = Text("Поведение", "Behavior") },
@@ -20,11 +22,8 @@ local function BuildPage(parent)
     Add(page, card, W:Toggle(card, Text("Блокировать положение", "Lock position"), function() return P().locked ~= false end, function(value)
         P().locked = value
     end))
-    local activeLabel = SUI.isForever and Text("Кнопка талантов", "Talent button") or Text("Кнопка специализации", "Specialization button")
-    Add(page, card, W:FeatureToggle(card, "specActive", activeLabel))
-    if not SUI.isForever then
-        Add(page, card, W:FeatureToggle(card, "specLoot", Text("Кнопка специализации добычи", "Loot specialization button")))
-    end
+    Add(page, card, W:FeatureToggle(card, "specActive", Text("Кнопка специализации", "Specialization button")))
+    Add(page, card, W:FeatureToggle(card, "specLoot", Text("Кнопка специализации добычи", "Loot specialization button")))
     B:FinishCard(page, "general", card)
 
     card = B:AddColumnSection(page, columns, "right", Text("Размер и положение", "Size and position"))
@@ -85,4 +84,7 @@ local function BuildPage(parent)
     return page
 end
 
-SUI:RegisterSettingsPage({ key = "specBar", title = Text("Панель специализаций", "Specialization bar"), group = "ПАНЕЛИ", order = 30, builder = BuildPage })
+SUI:RegisterSettingsPage({
+    key = "specBar", title = Text("Панель специализаций", "Specialization bar"),
+    group = "ПАНЕЛИ", order = 30, builder = BuildPage,
+})

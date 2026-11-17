@@ -169,17 +169,9 @@ function SRT:CreateBar()
     end
 end
 
-function SRT:LayoutPanel(panel)
-    local cfg, appearance = panel.cfg, self.profile.appearance
-    panel:ClearAllPoints()
-    panel:SetPoint(cfg.point, UIParent, cfg.relativePoint, cfg.x, cfg.y)
-    panel:SetScale(cfg.scale)
+function SRT:LayoutPanelVisuals(panel)
     self:ApplyPanelStyle(panel)
-
-    panel.handle:SetFont(self:GetFont(), math.max(10, appearance.fontSize - 1), appearance.outline == "NONE" and "" or appearance.outline)
-    panel.handle:SetTextColor(unpack(appearance.accent))
-    panel.handle:SetShown(self.settingsOpen == true)
-
+    local cfg, appearance = panel.cfg, self.profile.appearance
     local size, gap, previous = appearance.iconSize, appearance.spacing
     local count, actions = 0, self.profile.actions
     for _, button in ipairs(panel.buttons) do
@@ -209,8 +201,83 @@ function SRT:LayoutPanel(panel)
         and count * size + math.max(0, count - 1) * gap + 2 * appearance.padding
         or size + 2 * appearance.padding
     panel:SetSize(width, height)
+    return count
+end
+
+function SRT:LayoutPanel(panel)
+    local cfg, appearance = panel.cfg, self.profile.appearance
+    panel:ClearAllPoints()
+    panel:SetPoint(cfg.point, UIParent, cfg.relativePoint, cfg.x, cfg.y)
+    panel:SetScale(cfg.scale)
+
+    panel.handle:SetFont(self:GetFont(), math.max(10, appearance.fontSize - 1), appearance.outline == "NONE" and "" or appearance.outline)
+    panel.handle:SetTextColor(unpack(appearance.accent))
+    panel.handle:SetShown(self.settingsOpen == true)
+
+    local count = self:LayoutPanelVisuals(panel)
     panel:SetShown(count > 0 and self:ShowPanel(panel))
     self:RefreshFade(panel)
+end
+
+function SRT:CreateSettingsPanelPreview(parent, profile, selected)
+    local sample = CreateFrame("Frame", nil, parent)
+    sample:SetHeight(158)
+    local background = sample:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    local theme = SUI.SettingsTheme
+    Sintezza_Theme:Tint(background, "SetColorTexture", theme.input, .62)
+    local panels = {}
+    local function CreatePanel(id)
+        local panel = CreateFrame("Frame", nil, sample)
+        panel:SetPoint("CENTER")
+        panel.buttons = {}
+        panel.visual = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+        panel.visual:SetAllPoints()
+        panel.glowBorder = CreateFrame("Frame", nil, panel.visual, "BackdropTemplate")
+        panel.glowBorder:SetAllPoints()
+        panel.glowBorder:EnableMouse(false)
+        local function AddIcon(kind, texture)
+            local button = CreateFrame("Frame", nil, panel.visual, "BackdropTemplate")
+            button.kind = kind
+            button.icon = button:CreateTexture(nil, "ARTWORK")
+            if texture then button.icon:SetTexture(texture) end
+            panel.buttons[#panel.buttons + 1] = button
+            return button.icon
+        end
+        if id == "TARGET" then
+            for _, index in ipairs(SRT.registry.target) do SRT:SetRaidIcon(AddIcon("target"), index) end
+        elseif id == "WORLD" then
+            for _, index in ipairs(SRT.registry.world) do SRT:SetWorldIcon(AddIcon("world"), index) end
+            AddIcon("worldclear", SRT.media.clear)
+        elseif id == "CONTROL" then
+            AddIcon("ready", SRT.media.ready)
+            AddIcon("pull", SRT.media.pull)
+        else
+            for _ = 1, 3 do AddIcon("ping", SRT.media.ping) end
+        end
+        return panel
+    end
+    local status = SUI.Widgets:Label(sample, "", 11, theme.muted)
+    status:SetPoint("BOTTOM", sample, "BOTTOM", 0, 8)
+    function sample:Refresh()
+        if not self:IsVisible() or not SRT.profile then return end
+        local id = selected()
+        local panel = panels[id]
+        if not panel then panel = CreatePanel(id); panels[id] = panel end
+        local p = profile()
+        panel.cfg = p.panels[id]
+        local count = SRT:LayoutPanelVisuals(panel)
+        for key, candidate in pairs(panels) do candidate:SetShown(key == id and count > 0) end
+        local fit = math.min(math.max(1, self:GetWidth() - 16) / math.max(1, panel:GetWidth()),
+            125 / math.max(1, panel:GetHeight()))
+        panel:SetScale(math.min(panel.cfg.scale or 1, fit))
+        local enabled = p.enabled and panel.cfg.enabled
+        panel:SetAlpha(enabled and (panel.cfg.hoverAlpha or 1) or .38)
+        status:SetText(not enabled and Text("Панель выключена", "Bar disabled") or "")
+    end
+    sample:SetScript("OnSizeChanged", sample.Refresh)
+    sample:SetScript("OnShow", sample.Refresh)
+    return sample
 end
 
 function SRT:ApplyBarSettings()

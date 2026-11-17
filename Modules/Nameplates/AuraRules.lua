@@ -81,18 +81,6 @@ function A:RootProfile()
     return profile and profile.auraRules
 end
 
-function A:PandemicProfile()
-    local root = self:RootProfile()
-    if not root then return nil end
-    root.pandemic = type(root.pandemic) == "table" and root.pandemic or {}
-    if root.pandemic.enabled == nil then root.pandemic.enabled = false end
-    if root.pandemic.pulse == nil then root.pandemic.pulse = true end
-    root.pandemic.pulseSpeed = tonumber(root.pandemic.pulseSpeed) or 0.35
-    root.pandemic.color = type(root.pandemic.color) == "table" and root.pandemic.color
-        or { r = 1, g = 1, b = 1, a = 0.45 }
-    return root.pandemic
-end
-
 function A:ClassSpecKey()
     return SUI:GetClassSpecScope()
 end
@@ -204,6 +192,10 @@ function A:RuleCovers(higher, lower)
         remaining[condition.spellID] = nil
     end
     return next(remaining) == nil
+end
+
+function A:SupportsTextColoring()
+    return M.adapterKey == "ellesmere"
 end
 
 function A:HasColorTarget(rule, target)
@@ -320,13 +312,13 @@ local function CreateRuleTextures(parent, healthBar, rule, border, inset, sublev
     return textures
 end
 
-function A:PaintPreviewBorder(frame, health, rule, color, namespace, radius, corners)
+function A:PaintPreviewBorder(frame, health, rule, color, namespace, radius, corners, alpha)
     if not color then frame:Hide(); return end
     frame.previewBorders = frame.previewBorders or {}
     local key = (radius or 0) * 16 + (corners or 0)
     local textures = frame.previewBorders[key]
     if not textures then
-        textures = CreateRuleTextures(frame, health, rule, true, 0, 5, color, 1, namespace)
+        textures = CreateRuleTextures(frame, health, rule, true, 0, 5, color, alpha or 1, namespace)
         frame.previewBorders[key] = textures
     end
     PlaceRuleBorder(textures, frame, health, 0, self:BorderThickness(rule),
@@ -337,7 +329,7 @@ function A:PaintPreviewBorder(frame, health, rule, color, namespace, radius, cor
         frame.previewTextures = textures
     end
     for _, texture in ipairs(textures) do
-        M:ColorPlateEffectTexture(texture, color.r, color.g, color.b, 1)
+        M:ColorPlateEffectTexture(texture, color.r, color.g, color.b, alpha or 1)
     end
     frame:Show()
 end
@@ -395,15 +387,6 @@ function A:ConfigurationSignature(rules)
             color.b or color[3] or 1, color.a or color[4] or 1,
         }, ":")
     end
-    local pandemic = self:PandemicProfile() or {}
-    local pandemicColor = pandemic.color or {}
-    parts[#parts + 1] = table.concat({ "p", pandemic.enabled and 1 or 0,
-        pandemic.pulse == false and 0 or 1, pandemic.pulseSpeed or .35,
-        pandemicColor.r or pandemicColor[1] or 1,
-        pandemicColor.g or pandemicColor[2] or 1,
-        pandemicColor.b or pandemicColor[3] or 1,
-        pandemicColor.a or pandemicColor[4] or .45,
-    }, ":")
     return table.concat(parts, "|")
 end
 
@@ -454,8 +437,8 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
     local fill = self:HasColorTarget(rule, "HEALTH")
     local border = self:HasColorTarget(rule, "BORDER")
     local borderOnly = border and not fill
-    local text = M.adapterKey == "ellesmere" and self:HasColorTarget(rule, "TEXT")
-    local labels = M.adapterKey == "ellesmere" and self:HasColorTarget(rule, "LABELS")
+    local text = self:SupportsTextColoring() and self:HasColorTarget(rule, "TEXT")
+    local labels = self:SupportsTextColoring() and self:HasColorTarget(rule, "LABELS")
     rig.hasTextRules = rig.hasTextRules or text or labels
     local base = RuleBaseLevel(rig)
     if not base then error("health bar frame level unavailable") end
@@ -468,7 +451,6 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
         visuals = {},
         borders = {},
         borderThickness = self:BorderThickness(rule),
-        pandemics = {},
         visualHosts = {},
         visualHostOffsets = {},
         borderOnly = borderOnly,
@@ -503,52 +485,6 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
         return textures
     end
 
-    local function AddPandemic(button, host, isBorder, offset)
-        local pandemic = self:PandemicProfile()
-        if not pandemic or not pandemic.enabled or #conditions ~= 1
-            or type(button.AddPandemicRegion) ~= "function" then return end
-        local color = pandemic.color or { r = 1, g = 1, b = 1, a = 0.45 }
-        local function Register(region, textures, animation)
-            region:Hide()
-            local ok, err = pcall(button.AddPandemicRegion, button, region)
-            if ok then
-                record.pandemics[#record.pandemics + 1] = {
-                    region = region, textures = textures, animation = animation,
-                }
-            else
-                region:Hide()
-                if animation then animation:Stop() end
-                record.failures = record.failures + 1
-                record.error = record.error or tostring(err)
-            end
-        end
-        local region, textures, animation
-        if pandemic.pulse ~= false then
-            pcall(function()
-                local frame = CreateFrame("Frame", nil, host)
-                frame:Hide() -- A failed pulse setup must not leave an always-visible flash.
-                frame:SetAllPoints(healthBar)
-                pcall(frame.SetFrameLevel, frame, record.level + offset)
-                local flashes = MakeVisuals(frame, isBorder, 0, 6, color, color.a or 0.45)
-                local group = frame:CreateAnimationGroup()
-                group:SetLooping("BOUNCE")
-                local fade = group:CreateAnimation("Alpha")
-                fade:SetFromAlpha(1)
-                fade:SetToAlpha(0.1)
-                fade:SetDuration(pandemic.pulseSpeed or 0.35)
-                group:Play()
-                region, textures, animation = frame, flashes, group
-            end)
-        end
-        if region then
-            Register(region, textures, animation)
-        else
-            for _, texture in ipairs(MakeVisuals(host, isBorder, 0, 6, color, color.a or 0.45)) do
-                Register(texture, { texture })
-            end
-        end
-    end
-
     local function AddVisual(button, target)
         local isBorder = target == "BORDER"
         local offset = isBorder and fill and 1 or 0
@@ -564,7 +500,6 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
         for _, texture in ipairs(MakeVisuals(host, isBorder, record.insets[target], math.max(-8, 5 - rank), color, 1)) do
             record.visuals[#record.visuals + 1] = { owner = host, texture = texture }
         end
-        AddPandemic(button, host, isBorder, offset)
     end
 
     local AttachContainer
@@ -647,10 +582,6 @@ function A:RetireRig(rig)
         for _, visual in ipairs(record.visuals or {}) do
             if visual.texture then pcall(visual.texture.Hide, visual.texture) end
         end
-        for _, pandemic in ipairs(record.pandemics or {}) do
-            if pandemic.region then pcall(pandemic.region.Hide, pandemic.region) end
-            if pandemic.animation then pcall(pandemic.animation.Stop, pandemic.animation) end
-        end
         for _, container in ipairs(record.containers or {}) do container:Hide() end
     end
 end
@@ -697,9 +628,6 @@ function A:BuildRig(healthBar, repairs)
             -- RetireRig hides textures; reusing the cached shape must reveal
             -- them again under their still-disabled aura containers.
             for _, visual in ipairs(record.visuals or {}) do visual.texture:Show() end
-            for _, entry in ipairs(record.pandemics or {}) do
-                if entry.animation then entry.animation:Play() end
-            end
         end
         self.rigs[healthBar] = cached
         return cached
@@ -933,24 +861,9 @@ function A:ApplyRuleAppearance(rule)
     end
 end
 
-function A:ApplyPandemicAppearance()
-    local pandemic = self:PandemicProfile()
-    if not pandemic then return end
-    local color = pandemic.color or { r = 1, g = 1, b = 1, a = 0.45 }
-    for _, rig in pairs(self.rigs) do
-        for _, record in ipairs(rig.rules or {}) do
-            for _, entry in ipairs(record.pandemics or {}) do
-                for _, texture in ipairs(entry.textures or {}) do
-                    M:ColorPlateEffectTexture(texture, color.r, color.g, color.b, color.a or 0.45)
-                end
-            end
-        end
-    end
-end
-
 function A:GetDiagnostics()
     local result = {
-        rigs = 0, rules = 0, containers = 0, visuals = 0, pandemics = 0,
+        rigs = 0, rules = 0, containers = 0, visuals = 0,
         failures = 0, unsupported = 0, slots = 0, groups = 0,
         slotApiPresent = self.slotApiPresent,
         suspectRigs = 0,
@@ -969,7 +882,6 @@ function A:GetDiagnostics()
             result.rules = result.rules + 1
             result.containers = result.containers + #(record.containers or {})
             result.visuals = result.visuals + #(record.visuals or {})
-            result.pandemics = result.pandemics + #(record.pandemics or {})
             result.failures = result.failures + (record.failures or 0)
             result.slots = result.slots + (record.slotContainers or 0)
             result.groups = result.groups + (record.groupContainers or 0)

@@ -1,6 +1,6 @@
 local _, SUI = ...
 local L = SUI.OpenXPText
-if not SUI.isForever or not L or select(4, GetBuildInfo()) ~= 16001 then return end
+if not SUI.isForever or not L then return end
 
 local M = SUI:RegisterModule("openXPLocalization", {})
 local isSecret = _G.issecretvalue

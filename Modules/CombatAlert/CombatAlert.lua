@@ -9,33 +9,43 @@ local M = SUI:RegisterModule("combatAlert", {
 })
 SUI.CombatAlert = M
 
+local function AlertPresets(entries)
+    local presets = {}
+    for _, entry in ipairs(entries) do
+        local caption = Text(entry[1], entry[2])
+        presets[entry[1]], presets[entry[2]] = caption, caption
+    end
+    return presets
+end
+
 M.textPresets = {
-    enterText = {
-        ["В БОЙ"] = Text("В БОЙ", "IN COMBAT"),
-        ["БОЙ НАЧАЛСЯ"] = Text("БОЙ НАЧАЛСЯ", "COMBAT STARTED"),
-        ["СРАЖЕНИЕ"] = Text("СРАЖЕНИЕ", "FIGHT"),
-    },
-    leaveText = {
-        ["БОЙ ОКОНЧЕН"] = Text("БОЙ ОКОНЧЕН", "COMBAT ENDED"),
-        ["ВНЕ БОЯ"] = Text("ВНЕ БОЯ", "OUT OF COMBAT"),
-        ["КОНЕЦ БОЯ"] = Text("КОНЕЦ БОЯ", "END OF COMBAT"),
-    },
-    stealthEnterText = {
-        ["СКРЫТНОСТЬ"] = Text("СКРЫТНОСТЬ", "STEALTH"),
-        ["НЕВИДИМОСТЬ"] = Text("НЕВИДИМОСТЬ", "INVISIBLE"),
-        ["+ СКРЫТНОСТЬ"] = Text("+ СКРЫТНОСТЬ", "+ STEALTH"),
-    },
-    stealthLeaveText = {
-        ["СКРЫТНОСТЬ СНЯТА"] = Text("СКРЫТНОСТЬ СНЯТА", "STEALTH ENDED"),
-        ["ВИДИМ"] = Text("ВИДИМ", "VISIBLE"),
-        ["- СКРЫТНОСТЬ"] = Text("- СКРЫТНОСТЬ", "- STEALTH"),
-    },
+    enterText = AlertPresets({
+        { "В БОЙ", "IN COMBAT" },
+        { "БОЙ НАЧАЛСЯ", "COMBAT STARTED" },
+        { "СРАЖЕНИЕ", "FIGHT" },
+    }),
+    leaveText = AlertPresets({
+        { "БОЙ ОКОНЧЕН", "COMBAT ENDED" },
+        { "ВНЕ БОЯ", "OUT OF COMBAT" },
+        { "КОНЕЦ БОЯ", "END OF COMBAT" },
+    }),
+    stealthEnterText = AlertPresets({
+        { "СКРЫТНОСТЬ", "STEALTH" },
+        { "НЕВИДИМОСТЬ", "INVISIBLE" },
+        { "+ СКРЫТНОСТЬ", "+ STEALTH" },
+    }),
+    stealthLeaveText = AlertPresets({
+        { "СКРЫТНОСТЬ СНЯТА", "STEALTH ENDED" },
+        { "ВИДИМ", "VISIBLE" },
+        { "- СКРЫТНОСТЬ", "- STEALTH" },
+    }),
 }
 
 function M:GetAlertText(field)
     local profile = self:Profile()
     local custom = profile and type(profile.customText) == "table" and profile.customText[field]
-    if type(custom) == "string" and custom ~= "" then return custom end
+    -- Older profiles can store the displayed preset in the editable text field.
+    if type(custom) == "string" and custom ~= "" then return self.textPresets[field][custom] or custom end
     local choice = profile and profile[field]
     if type(choice) ~= "string" or choice == "" then choice = SUI.defaults.modules.combatAlert[field] end
     return self.textPresets[field][choice] or choice
@@ -59,18 +69,13 @@ end
 local SWORD_TEXTURE = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\sword.png"
 local STEALTH_TEXTURE = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\stealth-eye.png"
 local GLYPH_TEXTURE = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\signal-glyphs.png"
+local STEALTH_GLOW_TEXTURE = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\stealth-eye-glow.png"
+local STEALTH_SMOKE_TEXTURE = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\stealth-smoke.png"
 local IMPACT_TEXTURE = "Interface\\Cooldown\\star4"
 local glyphs = {
-    SEAL = { column = 0, startScale = .58, startY = 0, startAngle = -34 },
-    CREST = { column = 1, startScale = .88, startY = 17, startAngle = 0 },
-    EMBERS = { column = 2, startScale = .70, startY = -10, startAngle = 0 },
-    SLASH = { column = 3, startScale = .12, startY = 0, startAngle = 0 },
+    CREST = { column = 1, startScale = .88, startY = 17 },
+    SLASH = { column = 3, startScale = .12, startY = 0 },
 }
-local sparks = {
-    { -.23, .08, -12, 20 }, { .21, .16, 18, 16 },
-    { .12, .37, 9, 22 }, { -.15, .31, -11, 13 },
-}
-
 local function Clamp(value, minimum, maximum, fallback)
     value = tonumber(value) or fallback
     return math.max(minimum, math.min(maximum, value))
@@ -110,7 +115,7 @@ end
 
 function M:GetStealthVisualStyle(profile)
     local style = (profile or self:Profile() or {}).stealthVisualStyle
-    return (glyphs[style] or self:HasVisualVariant(style, true)) and style or "EYE"
+    return (style == "MIST" or glyphs[style] or self:HasVisualVariant(style, true)) and style or "EYE"
 end
 
 function M:RegisterAnimation(animation, duration, delay)
@@ -238,10 +243,8 @@ function M:BuildGlyph(frame, y, groups)
     art:SetAllPoints()
     art:SetTexture(GLYPH_TEXTURE)
     local enter, leave = holder:CreateAnimationGroup(), holder:CreateAnimationGroup()
-    local turnGroup = art:CreateAnimationGroup()
     self:NewAlpha(enter, 1, 0, 1, .16)
     local rise = self:NewTranslation(enter, 1, .40)
-    local turn = self:NewRotation(turnGroup, 1, .40)
     local scale = self:NewScale(enter, 1, 1, 1, .40)
     self:NewAlpha(enter, 2, 1, 1, .42)
     self:NewAlpha(enter, 3, 1, 0, .26)
@@ -254,24 +257,9 @@ function M:BuildGlyph(frame, y, groups)
     leave:SetScript("OnFinished", Hide)
     groups[#groups + 1] = enter
     groups[#groups + 1] = leave
-    groups[#groups + 1] = turnGroup
 
-    local particles = {}
-    for index, offsets in ipairs(sparks) do
-        local texture = holder:CreateTexture(nil, "OVERLAY")
-        texture:SetColorTexture(1, 1, 1, 1)
-        texture:SetSize(4, 4)
-        texture:SetRotation(math.pi / 4)
-        local spread = texture:CreateAnimationGroup()
-        local move = self:NewTranslation(spread, 1, .60)
-        move:SetOffset(offsets[3], offsets[4])
-        self:NewAlpha(spread, 1, 0, .95, .14)
-        self:NewAlpha(spread, 2, .95, 0, .28)
-        groups[#groups + 1] = spread
-        particles[index] = { texture = texture, spread = spread }
-    end
     return { base = frame, y = y, groups = groups, holder = holder, art = art, glow = glow, enter = enter, leave = leave,
-        rise = rise, turn = turn, turnGroup = turnGroup, scale = scale, drift = drift, particles = particles }
+        rise = rise, scale = scale, drift = drift }
 end
 
 local function TintGlyph(rig, r, g, b, a, glow)
@@ -279,8 +267,7 @@ local function TintGlyph(rig, r, g, b, a, glow)
     rig.glow:SetVertexColor(r, g, b, glow)
     rig.opacity = a
     if rig.emblem then rig.emblem:SetAlpha(a) end
-    for _, particle in ipairs(rig.particles) do particle.texture:SetVertexColor(r, g, b, a) end
-    M:TintVariant(rig, r, g, b, a, glow)
+    M:TintVariant(rig, r, g, b, a)
 end
 
 function M:ApplyFactionEmblem(emblem)
@@ -308,7 +295,6 @@ function M:PlayGlyph(rig, style, kind, size, textAnchor, text)
     local reduced = (self:Profile() or {}).reducedMotion == true
     local entering = kind == "enter"
     local startY = entering and not reduced and spec.startY or 0
-    local startAngle = entering and not reduced and spec.startAngle or 0
     local startScale = entering and not reduced and spec.startScale or 1
     local slash = style == "SLASH"
     local anchoredToText = slash and textAnchor
@@ -324,47 +310,31 @@ function M:PlayGlyph(rig, style, kind, size, textAnchor, text)
     holder:ClearAllPoints()
     holder:SetPoint("CENTER", anchoredToText or rig.base, "CENTER", 0, (anchoredToText and 0 or rig.y) + startY)
     rig.art:SetTexCoord(spec.column / 4, (spec.column + 1) / 4, slash and .20 or 0, slash and .83 or 1)
-    rig.art:SetRotation(math.rad(startAngle))
     local factionCrest = style == "CREST" and ApplyFactionCrest(rig, size)
     rig.art:SetShown(not factionCrest)
     if rig.emblem then rig.emblem:SetShown(factionCrest) end
     rig.rise:SetOffset(0, -startY)
-    rig.turn:SetDegrees(-startAngle)
     rig.scale:SetScaleFrom(startScale, slash and 1 or startScale)
     rig.scale:SetScaleTo(1, 1)
-    rig.drift:SetOffset(0, reduced and 0 or style == "EMBERS" and 8 or -6)
-
-    local showSparks = style == "EMBERS" and not reduced
-    for index, particle in ipairs(rig.particles) do
-        particle.texture:SetShown(showSparks)
-        if showSparks then
-            local offsets = sparks[index]
-            particle.texture:ClearAllPoints()
-            particle.texture:SetPoint("CENTER", holder, "CENTER", offsets[1] * size, offsets[2] * size)
-        end
-    end
+    rig.drift:SetOffset(0, reduced and 0 or -6)
     holder:Show()
     local group = entering and rig.enter or rig.leave
     group:Play()
-    if startAngle ~= 0 then rig.turnGroup:Play() end
-    if showSparks then
-        for _, particle in ipairs(rig.particles) do particle.spread:Play() end
-    end
 end
 
 function M:BuildStealthIconGroups(frame)
     local enter = frame:CreateAnimationGroup()
     enter.fadeIn = self:NewAlpha(enter, 1, 0, 1, .10)
     enter.reveal = self:NewScaleXY(enter, 1, .82, .55, 1, 1, .14)
-    enter.hold = self:NewAlpha(enter, 2, 1, 1, .14)
-    enter.close = self:NewScaleXY(enter, 3, 1, 1, 1.15, .08, .24)
-    enter.fadeOut = self:NewAlpha(enter, 3, 1, 0, .24)
+    enter.hold = self:NewAlpha(enter, 2, 1, 1, .50)
+    enter.close = self:NewScaleXY(enter, 3, 1, 1, 1.15, .08, .34)
+    enter.fadeOut = self:NewAlpha(enter, 3, 1, 0, .34)
 
     local leave = frame:CreateAnimationGroup()
     leave.fadeIn = self:NewAlpha(leave, 1, 0, 1, .12)
     leave.open = self:NewScaleXY(leave, 1, 1.12, .08, 1, 1, .22)
-    leave.hold = self:NewAlpha(leave, 2, 1, 1, .28)
-    leave.fadeOut = self:NewAlpha(leave, 3, 1, 0, .24)
+    leave.hold = self:NewAlpha(leave, 2, 1, 1, .58)
+    leave.fadeOut = self:NewAlpha(leave, 3, 1, 0, .36)
 
     local function HideIcon() frame:Hide() end
     enter:SetScript("OnFinished", HideIcon)
@@ -372,6 +342,10 @@ function M:BuildStealthIconGroups(frame)
     self.stealthGroups[#self.stealthGroups + 1] = enter
     self.stealthGroups[#self.stealthGroups + 1] = leave
     return { enter = enter, leave = leave }
+end
+
+local function FinishStealthScene(group)
+    if M.stealthPlaySerial == group.__suiSerial then M:RefreshStealthState() end
 end
 
 function M:BuildStealthTextGroups(frame)
@@ -388,15 +362,43 @@ function M:BuildStealthTextGroups(frame)
     leave.hold = self:NewAlpha(leave, 2, 1, 1, .40)
     leave.fadeOut = self:NewAlpha(leave, 3, 1, 0, .22)
 
-    local function Finish(group)
-        if M.stealthPlaySerial == group.__suiSerial then M:RefreshStealthState() end
-    end
-    enter:SetScript("OnFinished", Finish)
-    leave:SetScript("OnFinished", Finish)
+    enter:SetScript("OnFinished", FinishStealthScene)
+    leave:SetScript("OnFinished", FinishStealthScene)
     self.stealthGroups[#self.stealthGroups + 1] = enter
     self.stealthGroups[#self.stealthGroups + 1] = leave
     return { enter = enter, leave = leave }
 end
+
+local MIST_APPEAR, MIST_REVEAL, MIST_FADE = .40, 2.50, .55
+
+local function PaintStealthMist(frame, smokeAlpha, textAlpha)
+    frame.mistSmokeAlpha, frame.mistTextAlpha = smokeAlpha, textAlpha
+    local tint = M.stealthTint
+    M.stealthSmoke:SetVertexColor(tint.r, tint.g, tint.b, tint.smoke * smokeAlpha)
+    M.stealthText:SetTextColor(tint.captionR, tint.captionG, tint.captionB, tint.caption * textAlpha)
+end
+
+local function UpdateStealthMist(frame, elapsed)
+    frame.mistElapsed = frame.mistElapsed + elapsed
+    local t = frame.mistElapsed
+    local smokeAlpha, textAlpha
+    if t < MIST_APPEAR then
+        local progress = t / MIST_APPEAR
+        smokeAlpha, textAlpha = progress * progress * (3 - 2 * progress), 0
+    elseif t < MIST_APPEAR + MIST_REVEAL then
+        local progress = (t - MIST_APPEAR) / MIST_REVEAL
+        smokeAlpha, textAlpha = 1, .10 + .70 * progress
+    else
+        local progress = math.min(1, (t - MIST_APPEAR - MIST_REVEAL) / MIST_FADE)
+        local fade = 1 - progress * progress * (3 - 2 * progress)
+        smokeAlpha, textAlpha = fade, .80 * fade
+    end
+    PaintStealthMist(frame, smokeAlpha, textAlpha)
+    if t >= MIST_APPEAR + MIST_REVEAL + MIST_FADE then
+        M:RefreshStealthState()
+    end
+end
+
 function M:EnsureFrame()
     if self.frame then return self.frame end
     self.groups, self.animations = {}, self.animations or {}
@@ -466,9 +468,10 @@ function M:EnsureStealthFrame()
     iconFrame:SetPoint("CENTER", frame, "CENTER", 0, 17)
     iconFrame:SetFrameLevel(frame:GetFrameLevel() + 2)
     iconFrame:EnableMouse(false)
+    iconFrame:Hide()
 
     local glow = iconFrame:CreateTexture(nil, "ARTWORK", nil, 1)
-    glow:SetTexture(IMPACT_TEXTURE)
+    glow:SetTexture(STEALTH_GLOW_TEXTURE)
     glow:SetBlendMode("ADD")
     glow:SetAllPoints(iconFrame)
     local eye = iconFrame:CreateTexture(nil, "OVERLAY", nil, 2)
@@ -481,7 +484,14 @@ function M:EnsureStealthFrame()
     textFrame:SetPoint("CENTER", frame, "CENTER", 0, -34)
     textFrame:SetFrameLevel(frame:GetFrameLevel() + 3)
     textFrame:EnableMouse(false)
-    local text = textFrame:CreateFontString(nil, "OVERLAY")
+
+    local smoke = textFrame:CreateTexture(nil, "BACKGROUND")
+    smoke:SetTexture(STEALTH_SMOKE_TEXTURE)
+    smoke:SetTexCoord(0, 1, 0, 176 / 256)
+    smoke:SetPoint("CENTER", textFrame, "CENTER", 0, 4)
+    smoke:Hide()
+
+    local text = textFrame:CreateFontString(nil, "ARTWORK")
     text:SetPoint("LEFT")
     text:SetPoint("RIGHT")
     text:SetWordWrap(false)
@@ -491,7 +501,7 @@ function M:EnsureStealthFrame()
 
     self.stealthFrame = frame
     self.stealthIconFrame, self.stealthEye, self.stealthGlow = iconFrame, eye, glow
-    self.stealthTextFrame, self.stealthText = textFrame, text
+    self.stealthTextFrame, self.stealthText, self.stealthSmoke = textFrame, text, smoke
     self.stealthGlyph = self:BuildGlyph(frame, 17, self.stealthGroups)
     self.stealthIconGroups = self:BuildStealthIconGroups(iconFrame)
     self.stealthTextGroups = self:BuildStealthTextGroups(textFrame)
@@ -509,6 +519,23 @@ function M:ApplyAnimationSpeed()
     for _, animation in ipairs(self.animations or {}) do
         animation:SetDuration(animation.__suiDuration / speed)
         if animation.SetStartDelay then animation:SetStartDelay(animation.__suiDelay / speed) end
+    end
+end
+
+function M:ShowSignalFrame(frame, preview)
+    frame:SetFrameStrata(preview and "TOOLTIP" or "HIGH")
+    frame:Show()
+    if preview then frame:Raise() end
+end
+
+function M:FitSignalText(region, container, caption)
+    region:SetText(PlainText(caption))
+    local width = region.GetUnboundedStringWidth and region:GetUnboundedStringWidth() or region:GetStringWidth()
+    local limit = (container:GetWidth() - 12) / 1.08
+    if width <= limit then return end
+    local path, size, flags = region:GetFont()
+    if path and size then
+        region:SetFont(path, math.max(8, math.floor(size * limit / width)), flags or "")
     end
 end
 
@@ -569,7 +596,15 @@ function M:ApplyStealthColor(active)
     self.stealthSceneActive = active
     local r, g, b, a, captionR, captionG, captionB = SignalColor(profile, color, fallback, active == false)
     local glow = Clamp(profile.stealthGlowIntensity, 0, 1, .42)
-    self.stealthText:SetTextColor(captionR, captionG, captionB, a)
+    local tint = self.stealthTint or {}
+    self.stealthTint = tint
+    tint.r, tint.g, tint.b, tint.smoke = r, g, b, a * (.78 + glow * .17)
+    tint.captionR, tint.captionG, tint.captionB, tint.caption = captionR, captionG, captionB, a
+    if self.stealthFrame.mistElapsed then
+        PaintStealthMist(self.stealthFrame, self.stealthFrame.mistSmokeAlpha, self.stealthFrame.mistTextAlpha)
+    else
+        self.stealthText:SetTextColor(captionR, captionG, captionB, a)
+    end
     self.stealthEye:SetVertexColor(r, g, b, math.min(1, a * .94))
     self.stealthGlow:SetVertexColor(r, g, b, glow)
     TintGlyph(self.stealthGlyph, r, g, b, a, glow * .52)
@@ -586,6 +621,7 @@ function M:StopAnimations()
     end
     if self.frame then
         self.frame:Hide()
+        self.frame:SetFrameStrata("HIGH")
         self.leftSword:SetAlpha(1)
         self.rightSword:SetAlpha(1)
         self.textFrame:SetAlpha(1)
@@ -600,15 +636,20 @@ function M:StopStealthAnimations()
         if group:IsPlaying() then group:Stop() end
     end
     if self.stealthFrame then
+        self.stealthFrame:SetScript("OnUpdate", nil)
+        self.stealthFrame.mistElapsed, self.stealthFrame.mistSmokeAlpha, self.stealthFrame.mistTextAlpha = nil, nil, nil
         self.stealthFrame:Hide()
+        self.stealthFrame:SetFrameStrata("HIGH")
+        self.stealthIconFrame:Hide()
         self.stealthIconFrame:SetAlpha(1)
         self.stealthTextFrame:SetAlpha(1)
+        self.stealthSmoke:Hide()
         self.stealthGlyph.holder:Hide()
         self:HideVariant(self.stealthGlyph)
     end
 end
 
-function M:ConfigureStealthScene(active)
+function M:ConfigureStealthScene(active, style)
     local profile = self:Profile() or {}
     local reduced = profile.reducedMotion == true
     local iconGroup = active and self.stealthIconGroups.enter or self.stealthIconGroups.leave
@@ -634,7 +675,8 @@ function M:ConfigureStealthScene(active)
             textGroup.settle:SetScaleFrom(1.03, 1.03); textGroup.settle:SetScaleTo(1, 1)
         end
     end
-    self.stealthText:SetText(PlainText(self:GetAlertText(active and "stealthEnterText" or "stealthLeaveText")))
+    self.stealthTextFrame:SetPoint("CENTER", self.stealthFrame, "CENTER", 0, style == "MIST" and -18 or -34)
+    self:FitSignalText(self.stealthText, self.stealthTextFrame, self:GetAlertText(active and "stealthEnterText" or "stealthLeaveText"))
 end
 
 function M:PlayStealth(active, preview)
@@ -649,22 +691,34 @@ function M:PlayStealth(active, preview)
     self:EnsureStealthFrame()
     self.stealthPlaySerial = (self.stealthPlaySerial or 0) + 1
     local serial = self.stealthPlaySerial
-    self:ApplyStealthAppearance(active)
-    self:ConfigureStealthScene(active)
-    self.stealthFrame:Show()
-
     local style = self:GetStealthVisualStyle(profile)
+    local iconSize = Clamp(profile.stealthIconSize, 42, 88, 58)
+    self:ApplyStealthAppearance(active)
+    self:ConfigureStealthScene(active, style)
+    if style ~= "MIST" then self:ShowSignalFrame(self.stealthFrame, preview) end
+
     if style == "EYE" then
         self.stealthIconFrame:Show()
         local iconGroup = active and self.stealthIconGroups.enter or self.stealthIconGroups.leave
         iconGroup:Play()
+    elseif style == "MIST" then
+        local width = math.max(iconSize * 5, self.stealthText:GetStringWidth() + iconSize * 1.6)
+        self.stealthSmoke:SetSize(width, width * 176 / 512)
+        PaintStealthMist(self.stealthFrame, 0, 0)
+        self.stealthSmoke:Show()
+        self.stealthFrame.mistElapsed = 0
+        self.stealthFrame:SetScript("OnUpdate", UpdateStealthMist)
+        self:ShowSignalFrame(self.stealthFrame, preview)
+        return true
     else
-        self.stealthIconFrame:Hide()
         self:PlayGlyph(self.stealthGlyph, style, active and "enter" or "leave",
-            Clamp(profile.stealthIconSize, 42, 88, 58), self.stealthTextFrame, self.stealthText)
+            iconSize, self.stealthTextFrame, self.stealthText)
     end
     local textGroup = active and self.stealthTextGroups.enter or self.stealthTextGroups.leave
     textGroup.__suiSerial = serial
+    if style == "EYE" then
+        textGroup.hold:SetDuration((active and .67 or .86) / self:GetAnimationSpeed())
+    end
     if active then textGroup.fadeOut:SetToAlpha(preview and 0 or 1) end
     textGroup:Play()
     return true
@@ -682,9 +736,11 @@ function M:RefreshStealthState()
     end
     self.stealthed = self:GetStealthState()
     if not self.stealthed or profile.showStealthEnter == false then return end
+    local style = self:GetStealthVisualStyle(profile)
+    if style == "MIST" then return end
     self:EnsureStealthFrame()
     self:ApplyStealthAppearance(true)
-    self:ConfigureStealthScene(true)
+    self:ConfigureStealthScene(true, style)
     self.stealthIconFrame:Hide()
     self.stealthTextFrame:SetAlpha(1)
     self.stealthFrame:Show()
@@ -773,8 +829,8 @@ function M:Play(kind, preview)
     self.leftSword:SetShown(showSwords)
     self.rightSword:SetShown(showSwords)
     self.text:SetShown(showText)
-    self.text:SetText(PlainText(self:GetAlertText(kind == "enter" and "enterText" or "leaveText")))
-    self.frame:Show()
+    self:FitSignalText(self.text, self.textFrame, self:GetAlertText(kind == "enter" and "enterText" or "leaveText"))
+    self:ShowSignalFrame(self.frame, preview)
 
     local textGroup = self.textGroups[kind]
     textGroup.__suiSerial = serial

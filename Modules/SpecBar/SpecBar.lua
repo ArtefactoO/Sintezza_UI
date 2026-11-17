@@ -1,16 +1,12 @@
 local _, SUI = ...
+if SUI.isForever then return end
+
 local Text = SUI.Text
 local M = {}
 SUI:RegisterModule("specBar", M)
 
 local issecretvalue = issecretvalue or function() return false end
 local FALLBACK_ICON = 134400
-local TALENT_ICON = Sintezza_Theme.icons.GameBar .. "Talents-v2.tga"
-
-local function CombatLocked()
-    return InCombatLockdown and InCombatLockdown()
-end
-
 local function API()
     return C_SpecializationInfo or {}
 end
@@ -49,16 +45,6 @@ end
 
 function M:RefreshIcons()
     if not self.root then return end
-    if SUI.isForever then
-        if CombatLocked() then self.pendingSecureUpdate = true; return end
-        self.activeName = Text("Таланты", "Talents")
-        self.activeButton.icon:SetTexture(TALENT_ICON)
-        self.activeButton.icon:SetDesaturated(false)
-        self.activeButton:SetShown(self.profile.showActive ~= false)
-        self.lootButton:Hide()
-        self.root:SetSize(44, 39)
-        return
-    end
     local activeID, activeName, activeIcon = ActiveInfo()
     local lootID = CurrentLootID()
     local lootName, lootIcon = activeName, activeIcon
@@ -89,7 +75,7 @@ end
 
 function M:HasActiveButtons()
     local p = self.profile
-    return p and p.enabled ~= false and (p.showActive ~= false or (not SUI.isForever and p.showLoot ~= false))
+    return p and p.enabled ~= false and (p.showActive ~= false or p.showLoot ~= false)
 end
 
 local function IsSelected(kind, selected)
@@ -116,7 +102,7 @@ function M:Choose(kind, selected)
 end
 
 function M:OpenMenu(owner, kind)
-    if SUI.isForever or not self:HasActiveButtons() then return end
+    if not self:HasActiveButtons() then return end
     if kind == "loot" and self.profile.showLoot == false then return end
     if not (MenuUtil and type(MenuUtil.CreateContextMenu) == "function") then
         SUI:Print(Text("Меню специализаций недоступно.", "The specialization menu is unavailable."))
@@ -140,8 +126,7 @@ function M:OpenMenu(owner, kind)
 end
 
 local function CreateButton(parent, kind)
-    local talent = SUI.isForever and kind == "active"
-    local button = CreateFrame("Button", nil, parent, talent and "SecureActionButtonTemplate,SecureHandlerStateTemplate" or nil)
+    local button = CreateFrame("Button", nil, parent)
     button:SetSize(36, 37)
     button:SetFrameLevel(parent:GetFrameLevel() + 2)
     button:RegisterForClicks("AnyUp")
@@ -152,14 +137,7 @@ local function CreateButton(parent, kind)
     button.icon:SetTexCoord(.08, .92, .08, .92)
     button:SetScript("OnDragStart", function() M:StartMoving() end)
     button:SetScript("OnDragStop", function() M:StopMoving() end)
-    if talent then
-        button:SetScript("PostClick", function(self)
-            if CombatLocked() then SUI:Print(Text("Таланты недоступны в бою.", "Talents are unavailable in combat."))
-            elseif not self:GetAttribute("clickbutton1") then SUI:Print(Text("Открой таланты штатной кнопкой Blizzard.", "Open Talents with the Blizzard button.")) end
-        end)
-    elseif not SUI.isForever then
-        button:SetScript("OnClick", function(self, mouse) M:OpenMenu(self, mouse == "RightButton" and "loot" or kind) end)
-    end
+    button:SetScript("OnClick", function(self, mouse) M:OpenMenu(self, mouse == "RightButton" and "loot" or kind) end)
     button:SetScript("OnEnter", function(self)
         M:OnPanelEnter()
         local appearance = SUI:GetModuleProfile("gameBar") and SUI:GetModuleProfile("gameBar").appearance
@@ -171,9 +149,7 @@ local function CreateButton(parent, kind)
         end
         self.icon:SetVertexColor(r, g, b, 1)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        if SUI.isForever then
-            GameTooltip:SetText(Text("Таланты", "Talents"))
-        elseif M.collapsed then
+        if M.collapsed then
             GameTooltip:SetText(Text("Специализации", "Specializations"))
             GameTooltip:AddLine(Text("ЛКМ — текущая: %s", "Left-click: current — %s"):format(M.activeName), 1, 1, 1)
             GameTooltip:AddLine(Text("ПКМ — добыча: %s", "Right-click: loot — %s"):format(M.lootName), 1, 1, 1)
@@ -231,7 +207,6 @@ end
 
 function M:ApplyPosition()
     if not self.root then return end
-    if SUI.isForever and CombatLocked() then self.pendingSecureUpdate = true; return end
     local p = self.profile
     self.root:ClearAllPoints()
     self.root:SetPoint(p.point or "TOP", UIParent, p.relativePoint or "TOP", tonumber(p.x) or 0, tonumber(p.y) or -55)
@@ -291,39 +266,14 @@ function M:RefreshVisibility()
     local petBattle = self.petBattleActive or (C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle())
     local show = self:HasActiveButtons() and (self.settingsOpen
         or (not (p.hideInPetBattle and petBattle) and not (combat and p.combatVisibility == "HIDE")))
-    if SUI.isForever and combat then
-        self.pendingSecureUpdate = true
-        self:RefreshFade()
-        return
-    end
-    if SUI.isForever and RegisterStateDriver and UnregisterStateDriver then
-        local rule
-        if not self:HasActiveButtons() then rule = "hide"
-        elseif self.settingsOpen then rule = "show"
-        else
-            rule = (p.hideInPetBattle and "[petbattle] hide; " or "")
-                .. (p.combatVisibility == "HIDE" and "[combat] hide; " or "") .. "show"
-        end
-        if self.visibilityRule ~= rule then
-            if self.visibilityRule then UnregisterStateDriver(self.root, "visibility") end
-            RegisterStateDriver(self.root, "visibility", rule)
-            self.visibilityRule = rule
-        end
-    else
-        self.root:SetShown(show)
-    end
+    self.root:SetShown(show)
     if self.root:IsShown() then self:RefreshFade()
     elseif self.fadeFrame then self.fadeFrame:SetScript("OnUpdate", nil) end
 end
 
 function M:RefreshAll()
-    if SUI.isForever and CombatLocked() then self.pendingSecureUpdate = true; return end
-    self.pendingSecureUpdate = nil
     if not self.root and self:HasActiveButtons() then self:CreateVisuals() end
     if not self.root then return end
-    if SUI.isForever then
-        SUI.GameBar:ConfigureSecureClick(self.activeButton, self:HasActiveButtons() and SUI.GameBar:GetButtonEntry("TALENTS"))
-    end
     self:ApplyPosition()
     self:RefreshStyle()
     self:RefreshIcons()
@@ -337,7 +287,6 @@ end
 
 function M:StopMoving()
     if not self.root then return end
-    if SUI.isForever and CombatLocked() then self.pendingStopMoving = true; self.pendingSecureUpdate = true; return end
     self.root:StopMovingOrSizing()
     local point, _, relativePoint, x, y = self.root:GetPoint(1)
     if point and type(x) == "number" and type(y) == "number" then
@@ -357,7 +306,6 @@ function M:Initialize()
     }) do
         SUI:RegisterModuleEvent(self, event)
     end
-    if SUI.isForever then SUI:RegisterModuleEvent(self, "ADDON_LOADED") end
 end
 
 function M:OnProfileChanged()
@@ -365,17 +313,11 @@ function M:OnProfileChanged()
     self:RefreshAll()
 end
 
+function M:WantsEvent(event)
+    return self:HasActiveButtons() and event ~= "CHARACTER_POINTS_CHANGED" and event ~= "PLAYER_TALENT_UPDATE"
+end
+
 function M:OnEvent(event, unit)
-    if event == "ADDON_LOADED" then
-        if unit == "EllesmereUIForeverEssentials" then self:RefreshAll() end
-        return
-    end
-    if SUI.isForever and event == "PLAYER_REGEN_ENABLED" and self.pendingSecureUpdate then
-        if self.pendingStopMoving then self.pendingStopMoving = nil; self:StopMoving() end
-        self:RefreshAll()
-        return
-    end
-    if SUI.isForever and event == "PLAYER_ENTERING_WORLD" then self:RefreshAll(); return end
     if event == "PLAYER_SPECIALIZATION_CHANGED" and unit and unit ~= "player" then return end
     if event == "PET_BATTLE_OPENING_START" then self.petBattleActive = true end
     if event == "PET_BATTLE_CLOSE" then

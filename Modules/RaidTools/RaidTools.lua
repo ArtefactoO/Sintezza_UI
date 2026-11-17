@@ -32,7 +32,7 @@ end
 function M:GetRuntimeRoster()
     local rows = self.testMode and self:TestRoster()
         or (self.BuildRoster and self:BuildRoster() or {})
-    return self.ApplyReadyState and self:ApplyReadyState(rows) or rows
+    return not self.testMode and self.ApplyReadyState and self:ApplyReadyState(rows) or rows
 end
 
 function M:GetRoster() return self:GetRuntimeRoster() end
@@ -167,7 +167,12 @@ function M:OnEvent(event, unit)
         or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         -- These are passive game-state changes, not edits made by the user.
         -- Secure panel attributes still refresh after combat, but silently.
+        local rosterChanged = event ~= "PARTY_LEADER_CHANGED"
+        if rosterChanged then self.auditAuraCache = nil end
         self:RequestSecureUpdate(false)
+        if rosterChanged and self:InCombat() and self.audit and self.audit:IsShown() and not self.testMode then
+            self:RefreshAudit(true)
+        end
     elseif event == "READY_CHECK_CONFIRM" then
         if self.audit and self.audit:IsShown() and not self.testMode then self:RefreshAudit(false) end
     elseif event == "READY_CHECK_FINISHED" then

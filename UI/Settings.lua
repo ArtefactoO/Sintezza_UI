@@ -2,6 +2,9 @@ local _, SUI = ...
 local Text = SUI.Text
 local T, W, B = SUI.SettingsTheme, SUI.Widgets, SUI.SettingsBuilder
 local windowAppearance = Sintezza_Theme:NewWindowPreferences(function() return SUI:GetProfile() end)
+if Sintezza_Theme.RegisterGlobalWindowPreferences then
+    Sintezza_Theme:RegisterGlobalWindowPreferences("Sintezza UI", windowAppearance)
+end
 
 local UI = {
     pages = {}, definitions = {}, nav = {}, refreshers = {}, currentPage = "dashboard",
@@ -14,18 +17,23 @@ local UI = {
 SUI.SettingsUI = UI
 
 local NAV_GROUPS = {
-    ["ОБЗОР"] = { order = 10, icon = "overview" },
+    ["ОБЗОР"] = { order = 10 },
     ["ПАНЕЛИ"] = { order = 20, icon = "panels" },
     ["БОЙ"] = { order = 30, icon = "combat" },
     ["ГРУППА И КАРТА"] = { order = 40, icon = "party" },
+    ["СИСТЕМА"] = { order = 50, icon = "system" },
 }
 local NAV_ALIASES = { ["ОБЩЕЕ"] = "ОБЗОР", ["ЭЛЕМЕНТЫ ИНТЕРФЕЙСА"] = "БОЙ" }
 local NAV_OVERRIDES = {
     raidTools = { group = "ГРУППА И КАРТА", order = 10 },
     teleportPrompt = { group = "ГРУППА И КАРТА", order = 40 },
+    integrations = { group = "СИСТЕМА", order = 10 },
+    windowAppearance = { group = "СИСТЕМА", order = 20 },
+    diagnostics = { group = "СИСТЕМА", order = 30 },
+    profiles = { group = "СИСТЕМА", order = 40 },
 }
 local WINDOW_WIDTH, WINDOW_HEIGHT, MIN_HEIGHT = 1000, 660, 516
-local HEADER_HEIGHT, SIDEBAR_WIDTH = 72, 208
+local SIDEBAR_WIDTH = 208
 
 local function NavigationLess(left, right)
     local leftGroup = NAV_GROUPS[left.group] and NAV_GROUPS[left.group].order or 1000
@@ -74,10 +82,62 @@ function UI:Refresh()
 end
 
 local function CreateDashboard(parent)
-    local page = B:CreateTabbedPage(parent, Text("Настройки интерфейса", "Interface settings"), nil, {
-            { key = "general", title = Text("Общие", "General") },
-        }, true)
-    UI.pages.dashboard = page
+    local title = Text("Настройки интерфейса", "Interface settings")
+    local page = B:CreateTabbedPage(parent, title, Text("Открой раздел по тому, что хочешь изменить в игре.",
+        "Choose a section based on what you want to change in game."), { { key = "main" } }, true)
+    local columns = B:BeginColumns(page, "main", 18)
+    local open = Text("Открыть", "Open")
+    local function AddLink(card, label, detail, key, tab)
+        B:AddRow(page, card, W:NavigationRow(card, label, detail, open, function() UI:SelectPage(key, tab) end))
+    end
+    local card = B:AddColumnSection(page, columns, "left", Text("Основные разделы", "Main sections"))
+    AddLink(card, Text("Панели", "Bars"), Text("Игровые кнопки, часы, друзья и гильдия.",
+        "Game shortcuts, clock, friends and guild."), "gameBarMini", "general")
+    AddLink(card, Text("Сигналы", "Alerts"), Text("Бой, скрытность, здоровье и агро.",
+        "Combat, stealth, health and aggro."), "combatAlert", "combat")
+    if SUI.isForever then
+        AddLink(card, Text("Карта и маршруты", "Map and routes"), Text("Личная метка, Shortest Path и таймеры транспорта.",
+            "Personal waypoint, Shortest Path and transport timers."), "mapOptions", "display")
+    else
+        AddLink(card, Text("Группа на карте", "Party on the map"), Text("Метки сопартийцев.", "Party markers."), "partyMap")
+    end
+    B:FinishCard(page, "main", card)
+    card = B:AddColumnSection(page, columns, "right", Text("Быстрый доступ", "Quick access"))
+    AddLink(card, Text("Неймплейты", "Nameplates"), Text("Ряды баффов и правила дебаффов.",
+        "Buff rows and debuff rules."), "nameplates", "auras")
+    AddLink(card, Text("Проверка рейда", "Raid check"), Text("Готовность группы и тест окна.",
+        "Group readiness and window preview."), "raidTools", "audit")
+    AddLink(card, Text("Шрифт боевых цифр", "Combat numbers font"), Text("Каталог шрифтов и образец.",
+        "Font catalog and preview."), "combatFont", "font")
+    B:FinishCard(page, "main", card)
+    card = B:AddColumnSection(page, columns, "right", Text("Подключения", "Connections"))
+    local function AddConnection(title, addon)
+        local row = W:NavigationRow(card, title, "", Text("К настройкам", "Open settings"), function()
+            for _, group in ipairs(SUI:GetIntegrationGroups()) do
+                if group.title == title then UI:JumpTo("integrations", "integrations", nil, nil, group); return end
+            end
+        end)
+        W:WithStatus(row)
+        function row:Refresh()
+            local available, reason = SUI:GetAddonAvailability(addon, title)
+            self.status:SetText(available and Text("Подключен", "Connected") or Text("Недоступен", "Unavailable"))
+            Sintezza_Theme:Tint(self.status, "SetTextColor", available and T.accent or T.warning)
+            W:Help(self, reason)
+        end
+        B:AddRow(page, card, row)
+    end
+    if SUI.isForever then AddConnection("Shortest Path Forever", "ShortestPathForever") end
+    AddConnection("EllesmereUI", "EllesmereUI")
+    AddLink(card, Text("Все интеграции", "All integrations"), Text("Другие плагины и условия их работы.",
+        "Other addons and setup requirements."), "integrations")
+    B:FinishCard(page, "main", card)
+    B:FinishColumns(page, "main", columns)
+    return page
+end
+
+local function CreateWindowOptions(parent)
+    local page = B:CreateTabbedPage(parent, Text("Оформление окна", "Window appearance"), nil,
+        { { key = "general", title = Text("Общие", "General") } }, true)
 
     local general = B:BeginColumns(page, "general", 24)
     local common = B:AddColumnSection(page, general, "left", Text("Интерфейс", "Interface"))
@@ -134,6 +194,7 @@ local function CreateDashboard(parent)
     B:FinishColumns(page, "general", general)
     local tab = page.tabs.general
     local windowOptions = Sintezza_Theme:CreateWindowOptions(tab.body, T, {
+        heading = true,
         windows = { { prefs = windowAppearance } },
         getMinimap = function() return not SUI.db.minimap.hidden end,
         setMinimap = function(value)
@@ -150,11 +211,12 @@ local function CreateDashboard(parent)
 end
 
 local function CreateDiagnostics(parent)
-    local page, canvas = W:Page(parent)
-    local card = W:Card(canvas, Text("Состояние", "Status"))
-    card:SetPoint("TOPLEFT", canvas, "TOPLEFT", 0, -12)
-    card:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, -12)
-    card:SetHeight(396)
+    local page = B:CreateTabbedPage(parent, Text("Диагностика", "Diagnostics"), nil, { { key = "main" } }, true)
+    local tab = page.tabs.main
+    local canvas = tab.body
+    local section = W:Section(canvas, Text("Состояние", "Status"), nil, "settings")
+    section:SetPoint("TOPLEFT", canvas, "TOPLEFT", 0, -12)
+    section:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, -12)
     local addons = {
         { label = Text("Игровая панель", "Game Bar"), status = function() return SUI.Diagnostics:ModuleDetails("gameBar") end },
         { label = Text("Рейд-инструменты", "Raid Tools"), status = function() return SUI.Diagnostics:ModuleDetails("raidTools") end },
@@ -180,18 +242,20 @@ local function CreateDiagnostics(parent)
             return string.format(Text("ПАНЕЛИ %d  •  CD MANAGER %d", "BARS %d  •  COOLDOWN MANAGER %d"), module.hookedActionBars or 0, module.hookedCooldownManager or 0), true
         end },
     }
-    card.states = {}
-    for index, definition in ipairs(addons) do
-        local label = W:Label(card, definition.label, 11, T.text)
-        label:SetPoint("TOPLEFT", card, "TOPLEFT", 14, -58 - (index - 1) * 29)
-        local state = W:Label(card, "", 9, T.muted)
-        state:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, -58 - (index - 1) * 29)
+    section.states = {}
+    local y = -section.headerHeight - 6
+    for _, definition in ipairs(addons) do
+        local label = W:Label(section, definition.label, 11, T.text)
+        label:SetPoint("TOPLEFT", section, "TOPLEFT", 0, y)
+        local state = W:Label(section, "", 9, T.muted)
+        state:SetPoint("TOPRIGHT", section, "TOPRIGHT", 0, y)
+        y = y - 29
         state.addonName = definition.addon
         state.moduleKey = definition.module
         state.status = definition.status
-        card.states[#card.states + 1] = state
+        section.states[#section.states + 1] = state
     end
-    function card:Refresh()
+    function section:Refresh()
         for _, state in ipairs(self.states) do
             if state.status then
                 local value, healthy, pending = state.status()
@@ -209,56 +273,71 @@ local function CreateDiagnostics(parent)
             end
         end
     end
-    UI:AddRefresher(card)
+    page:AddRefresher(section)
 
-    local divider = card:CreateTexture(nil, "ARTWORK")
+    local divider = section:CreateTexture(nil, "ARTWORK")
     Sintezza_Theme:Tint(divider, "SetColorTexture", T.lineSoft)
-    divider:SetPoint("TOPLEFT", card, "TOPLEFT", 14, -320)
-    divider:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, -320)
+    divider:SetPoint("TOPLEFT", section, "TOPLEFT", 0, y)
+    divider:SetPoint("TOPRIGHT", section, "TOPRIGHT", 0, y)
     divider:SetHeight(1)
+    Sintezza_Theme:SnapTexture(divider)
+    section:SetHeight(-y + 52)
 
-    local reconnect = W:Button(card, Text("Переподключить EUI", "Reconnect EllesmereUI"), function()
+    local reconnect = W:Button(section, Text("Переподключить EUI", "Reconnect EllesmereUI"), function()
         local ok, message = SUI.Diagnostics:ReconnectEUI()
         SUI:Print(message)
         if ok then page:Refresh() end
     end, true)
     reconnect:SetSize(154, 27)
-    reconnect:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 14, 14)
-    local report = W:Button(card, Text("Скопировать отчет", "Copy report"), function() SUI.Diagnostics:ShowReport() end)
+    reconnect:SetPoint("BOTTOMLEFT", section, "BOTTOMLEFT", 0, 8)
+    local report = W:Button(section, Text("Скопировать отчет", "Copy report"), function() SUI.Diagnostics:ShowReport() end)
     report:SetSize(146, 27)
     report:SetPoint("LEFT", reconnect, "RIGHT", 8, 0)
-    local clear = W:Button(card, Text("Очистить ошибки", "Clear errors"), function() SUI.Diagnostics:ClearErrors() end)
+    local clear = W:Button(section, Text("Очистить ошибки", "Clear errors"), function() SUI.Diagnostics:ClearErrors() end)
     clear:SetSize(132, 27)
     clear:SetPoint("LEFT", report, "RIGHT", 8, 0)
-    page.errorSummary = W:Label(card, "", 9, T.muted)
-    page.errorSummary:SetPoint("RIGHT", card, "BOTTOMRIGHT", -14, 28)
+    page.errorSummary = W:Label(section, "", 9, T.muted)
+    page.errorSummary:SetPoint("RIGHT", section, "BOTTOMRIGHT", 0, 21)
     page.errorSummary:SetWidth(190)
 
-    function page:Refresh()
+    function page:OnRefresh()
         local count = SUI.Diagnostics and SUI.Diagnostics.totalErrors or 0
         self.errorSummary:SetText(count > 0 and (Text("Ошибок: ", "Errors: ") .. count) or Text("Ошибок не зафиксировано", "No errors recorded"))
         local c = count > 0 and T.danger or T.muted
         self.errorSummary:SetTextColor(c[1], c[2], c[3], 1)
     end
+    tab.nextY = -12 - section:GetHeight()
+    canvas:SetHeight(-tab.nextY + 2)
     return page
 end
 
 local function CreatePageError(parent, key, title)
     local page, canvas = W:Page(parent)
-    local card = W:Card(canvas, title, Text("Не удалось открыть раздел. Сведения об ошибке сохранены в диагностике.", "Could not open this page. The error was saved in Diagnostics."))
-    card:SetPoint("TOPLEFT", canvas, "TOPLEFT", 0, -12)
-    card:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, -12)
-    card:SetHeight(96)
+    local section = W:Section(canvas, title, nil, "settings")
+    section:SetPoint("TOPLEFT", canvas, "TOPLEFT", 0, -12)
+    section:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, -12)
+    section:SetHeight(96)
+
+    local message = W:Label(section, Text("Не удалось открыть раздел. Сведения об ошибке сохранены в диагностике.",
+        "Could not open this page. The error was saved in Diagnostics."), 11, T.muted)
+    message:SetPoint("TOPLEFT", section, "TOPLEFT", 0, -section.headerHeight)
+    message:SetPoint("TOPRIGHT", section, "TOPRIGHT", 0, -section.headerHeight)
+    message:SetWordWrap(true)
+
     local isDiagnostics = key == "diagnostics"
-    local button = W:Button(card, isDiagnostics and Text("Скопировать отчет", "Copy report") or Text("Открыть диагностику", "Open diagnostics"), function()
+    local button = W:Button(section, isDiagnostics and Text("Скопировать отчет", "Copy report") or Text("Открыть диагностику", "Open diagnostics"), function()
         if isDiagnostics then SUI.Diagnostics:ShowReport() else UI:SelectPage("diagnostics") end
     end, true)
     button:SetSize(168, 26)
-    button:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 14, 12)
+    button:SetPoint("TOPLEFT", message, "BOTTOMLEFT", 0, -12)
     return page
 end
 
 function UI:SelectPage(key, requestedTab)
+    if self.searchResults and self.searchResults:IsShown() then self:ClearSearch() end
+    if key == "features" then
+        key, requestedTab = requestedTab == "integrations" and "integrations" or "dashboard", nil
+    end
     local route = self.routes[key]
     if route then key, requestedTab = route.page, requestedTab or route.tab end
     if not self.pages[key] and self.definitions[key] then
@@ -287,16 +366,119 @@ function UI:SelectPage(key, requestedTab)
     local definition = self.definitions[key]
     self.headerTitle:SetText(page.headerTitle or (definition and definition.title) or "")
     local subtitle = page.headerSubtitle or ""
-    self.headerSubtitle:SetText(subtitle)
-    local titleInset = subtitle == "" and -math.floor((HEADER_HEIGHT - self.headerTitle:GetHeight()) / 2) or -11
-    self.headerTitle:SetPoint("TOPLEFT", self.headerBrand, "TOPRIGHT", 24, titleInset)
-    self.headerTitle:SetPoint("TOPRIGHT", self.headerBrand:GetParent(), "TOPRIGHT", -50, titleInset)
+    local keys = Text("Tab — переход, Enter — выбрать, стрелки — изменить значение.",
+        "Tab to move, Enter to select, arrow keys to adjust.")
+    W:Help(self.heading, subtitle == "" and keys or (subtitle .. "\n\n" .. keys), self.headerTitle)
+    if self.searchHighlight then self.searchHighlight:Hide() end
     if page and page.OnSelected then pcall(page.OnSelected, page) end
     if requestedTab and page and page.SelectTab then page:SelectTab(requestedTab) end
     local navKey = page and page.navKey or key
+    for _, section in ipairs(self.navSections) do
+        if section.activeKey[navKey] and section.open == false then section.open = nil end
+    end
+    self:LayoutNavigation(navKey)
     for _, button in ipairs(self.nav) do button:SetSelected(button.pageKey == navKey) end
     self:RevealNav(navKey)
     self:Refresh()
+    return page
+end
+
+local function SectionOpen(section, key)
+    return not section.header or section.open == true or (section.open == nil and section.activeKey[key] == true)
+end
+
+local function PaintNavigationArrow(button)
+    local color = button.expanded and T.accent or (button.hovered and T.text or T.brass)
+    Sintezza_Theme:Tint(button.arrow, "SetVertexColor", color)
+end
+
+function UI:LayoutNavigation(key)
+    local scroll = self.navScroll
+    if not scroll then return end
+    local body, y = scroll.body, 3
+    self.navOffsets = {}
+    local function Place(button, inset)
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", body, "TOPLEFT", inset, -y)
+        button:SetPoint("TOPRIGHT", body, "TOPRIGHT", -2, -y)
+        y = y + button:GetHeight()
+    end
+    for _, section in ipairs(self.navSections) do
+        local open = SectionOpen(section, key)
+        if section.header then
+            y = y + 6
+            Place(section.header, 0)
+            section.header.expanded = open
+            section.header.arrow:SetExpanded(open)
+            PaintNavigationArrow(section.header)
+        end
+        for _, button in ipairs(section.buttons) do
+            button:SetShown(open == true)
+            if open then
+                self.navOffsets[button.pageKey] = { top = y, bottom = y + button:GetHeight() }
+                Place(button, section.header and 7 or 0)
+            end
+        end
+    end
+    body:SetHeight(y + 4)
+    scroll:RefreshRange()
+end
+
+function UI:BuildNavigation(sidebar)
+    local scroll, body, bar = W:ScrollFrame(sidebar)
+    scroll:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 8, -8)
+    scroll:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -12, 8)
+    bar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 8, 0)
+    bar:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 8, 0)
+    scroll:HookScript("OnSizeChanged", function(frame, width)
+        body:SetWidth(math.max(1, width))
+        frame:RefreshRange()
+    end)
+    self.navScroll, self.navSections = scroll, {}
+    local navDefs = { { title = Text("Главная", "Home"), key = "dashboard", group = "ОБЗОР", order = 10 } }
+    for key, definition in pairs(self.definitions) do
+        if definition.showInNav ~= false then
+            local override = NAV_OVERRIDES[key]
+            local group = override and override.group or definition.group or "БОЙ"
+            navDefs[#navDefs + 1] = {
+                title = definition.title, key = key, group = NAV_ALIASES[group] or group,
+                order = override and override.order or definition.order,
+            }
+        end
+    end
+    table.sort(navDefs, NavigationLess)
+    self.navEntries = navDefs
+    local function OpenPage(key) self:SelectPage(key) end
+    local section
+    for _, definition in ipairs(navDefs) do
+        if not section or section.group ~= definition.group then
+            local group = NAV_GROUPS[definition.group]
+            local current = { group = definition.group, buttons = {}, activeKey = {} }
+            self.navSections[#self.navSections + 1] = current
+            if group and group.icon then
+                current.header = W:NavButton(body, SUI.NavGroupLabel(definition.group), definition.group, function()
+                    local page = self.pages[self.currentPage]
+                    local key = page and page.navKey or self.currentPage
+                    current.open = not SectionOpen(current, key)
+                    self:LayoutNavigation(key)
+                end, group.icon)
+                current.header.text:SetPoint("RIGHT", current.header, "RIGHT", -27, 0)
+                current.header.arrow = T:DisclosureArrow(current.header, 18, T.brass)
+                current.header.arrow:SetPoint("RIGHT", current.header, "RIGHT", -5, 0)
+                current.header:HookScript("OnEnter", PaintNavigationArrow)
+                current.header:HookScript("OnLeave", PaintNavigationArrow)
+            end
+            section = current
+        end
+        local button = W:NavButton(body, definition.title, definition.key, OpenPage)
+        section.buttons[#section.buttons + 1] = button
+        section.activeKey[definition.key] = true
+        self.nav[#self.nav + 1] = button
+    end
+    scroll:HookScript("OnShow", function()
+        local page = self.pages[self.currentPage]
+        self:RevealNav(page and page.navKey or self.currentPage)
+    end)
 end
 
 function UI:BuildWindow()
@@ -319,6 +501,8 @@ function UI:BuildWindow()
         frame:UnregisterEvent("PLAYER_REGEN_DISABLED")
         frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
         frame:UnregisterEvent("GLOBAL_MOUSE_DOWN")
+        self:ClearSearch()
+        if self.searchHighlight then self.searchHighlight:Hide() end
         if SUI.Widgets then SUI.Widgets:CloseColorPicker() end
         local page = UI.pages[UI.currentPage]
         if page and page.OnDeselected then pcall(page.OnDeselected, page) end
@@ -332,11 +516,14 @@ function UI:BuildWindow()
     window:SetScript("OnEvent", function(frame, event)
         if event == "GLOBAL_MOUSE_DOWN" then
             if frame.ClearSettingsFocus then frame:ClearSettingsFocus() end
+            if self.searchResults and self.searchResults:IsShown()
+                and not self.searchResults:IsMouseOver() and not self.searchBox:IsMouseOver() then
+                self:ClearSearch()
+            end
             return
         end
         if event ~= "ADDON_LOADED" then
             if frame.RefreshSettingsKeyboard then frame:RefreshSettingsKeyboard() end
-            return
         end
         if frame.dependencyRefresh then return end
         frame.dependencyRefresh = true
@@ -358,44 +545,12 @@ function UI:BuildWindow()
     })
     UISpecialFrames[#UISpecialFrames + 1] = "Sintezza_UIWindow"
 
-    local header = CreateFrame("Frame", nil, window, "BackdropTemplate")
-    header:SetPoint("TOPLEFT", window, "TOPLEFT", 1, -1)
-    header:SetPoint("TOPRIGHT", window, "TOPRIGHT", -1, -1)
-    header:SetHeight(HEADER_HEIGHT)
-    T:HeaderSurface(header)
-
-    local brand = CreateFrame("Frame", nil, header)
-    brand:SetPoint("TOPLEFT")
-    brand:SetPoint("BOTTOMLEFT")
-    brand:SetWidth(SIDEBAR_WIDTH)
-    local icon = brand:CreateTexture(nil, "ARTWORK")
-    icon:SetTexture(Sintezza_Theme.icons.Sintezza_UI)
-    icon:SetSize(36, 36)
-    icon:SetPoint("LEFT", 12, 0)
-    local name = W:Label(brand, "Sintezza UI", 16, T.text, "display")
-    name:SetPoint("LEFT", icon, "RIGHT", 8, 7)
-    local version = W:Label(brand, "v" .. SUI.version, 9, T.dim)
-    version:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 1, -3)
-
-    local close = W:CloseButton(header, function() window:Hide() end, nil, true)
-    close:SetPoint("TOPRIGHT", -10, -10)
-    local title = W:Label(header, "", 25, T.text, "display")
-    title:SetPoint("TOPLEFT", brand, "TOPRIGHT", 24, -11)
-    title:SetPoint("TOPRIGHT", -50, -11)
-    title:SetHeight(31)
-    title:SetWordWrap(false)
-    local keys = W:Label(header, Text("Tab · переход   Enter · выбрать   Стрелки · изменить", "Tab · move   Enter · select   Arrows · adjust"), 9, T.dim)
-    keys:SetPoint("BOTTOMRIGHT", -16, 14)
-    keys:Hide()
-    local subtitle = W:Label(header, "", 10, T.muted)
-    subtitle:SetPoint("BOTTOMLEFT", brand, "BOTTOMRIGHT", 25, 14)
-    subtitle:SetPoint("BOTTOMRIGHT", -265, 14)
-    subtitle:SetHeight(22)
-    subtitle:SetJustifyV("BOTTOM")
-    subtitle:SetWordWrap(true)
-    self.headerTitle, self.headerSubtitle = title, subtitle
-    self.headerBrand = brand
-    W:InstallSettingsKeyboard(self, window, close, keys)
+    local header = W:WindowHeader(window, {
+        title = SUI.title, version = SUI.version, icon = Sintezza_Theme.icons.Sintezza_UI,
+    })
+    local close = header.close
+    self:BuildSearch(header)
+    W:InstallSettingsKeyboard(self, window, close)
 
     local sidebar = CreateFrame("Frame", nil, window, "BackdropTemplate")
     sidebar:SetPoint("TOPLEFT", header, "BOTTOMLEFT")
@@ -413,109 +568,44 @@ function UI:BuildWindow()
     local content = CreateFrame("Frame", nil, window)
     content:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 8, -3)
     content:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -8, 8)
-    self.content = content
+    local heading = CreateFrame("Frame", nil, content)
+    heading:SetPoint("TOPLEFT", content, "TOPLEFT", 14, -9)
+    heading:SetPoint("TOPRIGHT", content, "TOPRIGHT", -14, -9)
+    heading:SetHeight(44)
+    local title = W:Label(heading, "", 24, T.text, "display")
+    title:SetPoint("TOPLEFT", heading, "TOPLEFT", 0, -3)
+    title:SetPoint("TOPRIGHT", heading, "TOPRIGHT", 0, -3)
+    title:SetWordWrap(false)
+    local separator = heading:CreateTexture(nil, "ARTWORK")
+    Sintezza_Theme:Tint(separator, "SetColorTexture", T.lineSoft)
+    separator:SetPoint("BOTTOMLEFT")
+    separator:SetPoint("BOTTOMRIGHT")
+    separator:SetHeight(1)
+    self.heading, self.headerTitle = heading, title
 
-    CreateDashboard(content)
+    local pages = CreateFrame("Frame", nil, content)
+    pages:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", -14, -6)
+    pages:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT")
+    self.content = pages
+
+    self.definitions.dashboard = { title = Text("Главная", "Home"), builder = CreateDashboard, showInNav = false }
     for _, definition in ipairs(SUI.settingsPages) do self.definitions[definition.key] = definition end
+    self.definitions.windowAppearance = { title = Text("Оформление окна", "Window appearance"), builder = CreateWindowOptions }
     self.definitions.diagnostics = { title = Text("Диагностика", "Diagnostics"), builder = CreateDiagnostics }
-
-    local navDefs = { { title = Text("Главная", "Home"), key = "dashboard", group = "ОБЗОР", order = 10 } }
-    for _, definition in ipairs(SUI.settingsPages) do
-        if definition.showInNav ~= false then
-            local override = NAV_OVERRIDES[definition.key]
-            local group = override and override.group or definition.group or "БОЙ"
-            navDefs[#navDefs + 1] = {
-                title = definition.key == "specBar" and SUI.isForever and Text("Панель талантов", "Talent bar") or definition.title,
-                key = definition.key,
-                group = NAV_ALIASES[group] or group,
-                order = override and override.order or definition.order,
-            }
-        end
-    end
-    table.sort(navDefs, NavigationLess)
-
-    local footer = CreateFrame("Frame", nil, sidebar, "BackdropTemplate")
-    footer:SetHeight(36)
-    footer:SetPoint("BOTTOMLEFT", sidebar, "BOTTOMLEFT", 1, 1)
-    footer:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", -1, 1)
-    self.navFooter = footer
-    T:Backdrop(footer, T.sidebar, T.lineSoft)
-    local function OpenPage(key) self:SelectPage(key) end
-    local diagnostics = W:NavButton(footer, Text("Диагностика", "Diagnostics"), "diagnostics", OpenPage, "system")
-    diagnostics:SetPoint("TOPLEFT", footer, "TOPLEFT", 8, -4)
-    diagnostics:SetPoint("TOPRIGHT", footer, "TOPRIGHT", -8, -4)
-    self.nav[#self.nav + 1] = diagnostics
-
-    local scroll, body, bar = W:ScrollFrame(sidebar)
-    scroll:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 8, -8)
-    scroll:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", -12, 5)
-    bar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 8, 0)
-    bar:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 8, 0)
-    scroll:HookScript("OnSizeChanged", function(frame, width)
-        body:SetWidth(math.max(1, width))
-        frame:RefreshRange()
-    end)
-    self.navScroll, self.navOffsets = scroll, {}
-    local y, previousGroup = 2, nil
-    for _, definition in ipairs(navDefs) do
-        if definition.group ~= previousGroup then
-            if previousGroup then
-                y = y + 7
-                local divider = body:CreateTexture(nil, "ARTWORK")
-                Sintezza_Theme:Tint(divider, "SetColorTexture", T.lineSoft)
-                divider:SetHeight(1)
-                divider:SetPoint("TOPLEFT", body, "TOPLEFT", 8, -y)
-                divider:SetPoint("TOPRIGHT", body, "TOPRIGHT", -6, -y)
-                y = y + 7
-            end
-            local group = NAV_GROUPS[definition.group]
-            local tile = CreateFrame("Frame", nil, body, "BackdropTemplate")
-            tile:SetSize(18, 18)
-            tile:SetPoint("TOPLEFT", body, "TOPLEFT", 6, -y)
-            T:Backdrop(tile, T.header, T.lineSoft)
-            local icon = T:Glyph(tile, group and group.icon or "overview", 16)
-            icon:SetPoint("CENTER")
-            local groupLabel = W:Label(body, SUI.NavGroupLabel(definition.group), 9, T.muted)
-            groupLabel:SetPoint("LEFT", tile, "RIGHT", 8, 0)
-            y = y + 23
-        end
-        local button = W:NavButton(body, definition.title, definition.key, OpenPage)
-        button:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
-        button:SetPoint("TOPRIGHT", body, "TOPRIGHT", -1, -y)
-        self.navOffsets[definition.key] = { top = y, bottom = y + button:GetHeight() }
-        y = y + button:GetHeight()
-        self.nav[#self.nav + 1] = button
-        previousGroup = definition.group
-    end
-    body:SetSize(math.max(1, scroll:GetWidth()), y + 4)
-    scroll:HookScript("OnShow", function()
-        local page = self.pages[self.currentPage]
-        self:RevealNav(page and page.navKey or self.currentPage)
-    end)
+    self:BuildNavigation(sidebar)
     window:Hide()
     self:SelectPage("dashboard")
     return window
 end
 
 function UI:RegisterBlizzardCategory()
-    if not Settings or not Settings.RegisterCanvasLayoutCategory then return end
-    local panel = CreateFrame("Frame")
-    panel.name = "Sintezza UI"
-    local title = W:Label(panel, "Sintezza UI", 18, T.text)
-    local icon = panel:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(24, 24)
-    icon:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -18)
-    icon:SetTexture(Sintezza_Theme.icons.Sintezza_UI)
-    title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
-    local button = W:Button(panel, Text("Открыть настройки", "Open settings"), function()
-        if SettingsPanel and SettingsPanel:IsShown() then HideUIPanel(SettingsPanel) end
-        UI:Show("dashboard")
-    end, true)
-    button:SetSize(170, 28)
-    button:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -16)
-    local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-    Settings.RegisterAddOnCategory(category)
-    self.category = category
+    if self.category then return end
+    self.category = Sintezza_Theme:RegisterLauncherPage({
+        title = "Sintezza UI", icon = Sintezza_Theme.icons.Sintezza_UI,
+        buttonLabel = Text("Открыть настройки", "Open settings"),
+        open = function() self:Show("dashboard") end,
+        appearance = T,
+    })
 end
 
 function UI:Initialize()

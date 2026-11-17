@@ -126,8 +126,8 @@ local function FindPosition(unit, fallbackMap)
 end
 
 local function StitchedAPI()
-    local api = _G.OpenMapAPI
-    if api and api.major == 1 and Call(api.IsStitched) then return api end
+    local api = SUI:GetOpenMapProjectionAPI()
+    if api and Call(api.IsStitched) then return api end
 end
 
 local function OpenMapPosition(group, unit)

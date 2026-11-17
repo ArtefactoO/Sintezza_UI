@@ -9,7 +9,7 @@ local definitions = {
     healthAlert = {
         caption = Text("МАЛО ЗДОРОВЬЯ", "LOW HEALTH"),
         defaultStyle = "PULSE",
-        styles = { PULSE = true, FISSURE = true, PLAQUE = true },
+        styles = { PULSE = true, PLAQUE = true },
     },
     aggroAlert = {
         caption = Text("АГРО", "AGGRO"),
@@ -80,7 +80,7 @@ local function Paint(self, rig, profile)
         rig.icon:SetVertexColor(r, g, b, a)
     end
     rig.ring:SetVertexColor(r, g, b, a * .60)
-    self:TintVariant(rig.variant, r, g, b, a, .30)
+    self:TintVariant(rig.variant, r, g, b, a)
 end
 
 local function Build(self, kind)
@@ -140,6 +140,7 @@ function M:StopExtraAlert(kind)
     end
     self:HideVariant(rig.variant)
     rig.base:Hide()
+    rig.base:SetFrameStrata("HIGH")
     rig.icon:Hide()
     rig.ring:Hide()
 end
@@ -170,12 +171,12 @@ local function Play(self, kind, detail, preview)
     rig.title:ClearAllPoints()
     rig.title:SetPoint("CENTER", rig.base, "CENTER", 0, showIcon and -size * .48 or 0)
     ApplyFont(rig.caption, combatProfile.font or "INTERFACE", fontSize)
-    rig.caption:SetText((self:GetExtraAlertCaption(kind, detail):gsub("|", "||")))
+    self:FitSignalText(rig.caption, rig.title, self:GetExtraAlertCaption(kind, detail))
     rig.caption:SetShown(showCaption)
     rig.variant.y = showCaption and size * .19 or 0
     Paint(self, rig, profile)
     self:ApplyAnimationSpeed()
-    rig.base:Show()
+    self:ShowSignalFrame(rig.base, preview)
     rig.display:Play()
 
     if showIcon then

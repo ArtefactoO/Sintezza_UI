@@ -13,7 +13,16 @@ end
 
 local function ShortestPath()
     local addon = _G.ShortestPathForever
-    return addon and addon.API
+    local api = type(addon) == "table" and addon.API
+    if type(api) == "table" then return api end
+end
+
+function M:GetOpenXPRouteAPI()
+    local api = ShortestPath()
+    if api and type(api.NavigateRoute) == "function" and type(api.CurrentStop) == "function"
+        and type(api.Cancel) == "function" and type(api.Active) == "function" then
+        return api
+    end
 end
 
 local function OwnsRoute(api)
@@ -21,7 +30,7 @@ local function OwnsRoute(api)
 end
 
 local function OpenXPRoute(api)
-    return api and api.CurrentStop and SUI:IsAddonLoaded("OpenXP")
+    return api and type(api.CurrentStop) == "function" and SUI:IsAddonLoaded("OpenXP")
         and not SUI:IsAddonLoaded("RXPGuides")
         and (api.CurrentStop(OPENXP_OWNER) or api.CurrentStop("RestedXP"))
 end
@@ -128,22 +137,23 @@ local function GuideCaller()
 end
 
 local function StitchedAPI()
-    local api = _G.OpenMapAPI
-    if api and api.major == 1 and api.IsStitched and api.IsStitched() then
-        return api
+    local api = SUI:GetOpenMapProjectionAPI()
+    if api then
+        local ok, stitched = pcall(api.IsStitched)
+        if ok and not (issecretvalue and issecretvalue(stitched)) and stitched == true then return api end
     end
 end
 
 local function CursorPoint(map, u, v)
     local api = StitchedAPI()
     if api then
-        if not (Number(u) and Number(v)) and api.CursorPosition then
+        if not (Number(u) and Number(v)) and type(api.CursorPosition) == "function" then
             u, v = api.CursorPosition()
         end
         if Number(u) and Number(v) then
             local point = { u = u, v = v }
-            local id = api.MapAt and api.MapAt(u, v)
-            if id and api.MapFromWorld then
+            local id = type(api.MapAt) == "function" and api.MapAt(u, v)
+            if Number(id) then
                 local x, y = api.MapFromWorld(id, u, v)
                 if Coordinates(id, x, y) then point.mapID, point.x, point.y = id, x, y end
             end
@@ -216,9 +226,9 @@ end
 local function Project(map, point)
     local id = map:GetMapID()
     local api = StitchedAPI()
-    if api and id and api.MapFromWorld then
+    if api and id then
         local u, v = point.u, point.v
-        if not u and point.mapID and api.WorldFromMap then
+        if not u and point.mapID then
             u, v = api.WorldFromMap(point.mapID, point.x, point.y)
         end
         if Number(u) and Number(v) then
@@ -452,7 +462,7 @@ function M:RefreshOpenXPArrow(api)
     local frame = self.openXPGuide and self.openXPGuide.arrowFrame
     local settings = _G.ShortestPathForeverDB
     local hide = self.enabled and SUI:IntegrationEnabled("openxp") and frame and settings and settings.restedxpHideArrow ~= false
-        and OpenXPRoute(api) and api.Active and api.Active()
+        and type(api and api.Active) == "function" and OpenXPRoute(api) and api.Active()
     if not hide then
         if self.openXPArrowAlpha then
             for region, alpha in pairs(self.openXPArrowAlpha) do region:SetAlpha(alpha) end
@@ -483,11 +493,9 @@ function M:SyncOpenXP()
         return
     end
     self.openXPDeferred = nil
-    local api = ShortestPath()
+    local api = self:GetOpenXPRouteAPI()
     self:RefreshOpenXPArrow(api)
-    if not (api and (api.version == 1 or api.version == 2) and type(api.NavigateRoute) == "function"
-        and type(api.CurrentStop) == "function" and type(api.Cancel) == "function"
-        and type(api.Active) == "function") then return end
+    if not api then return end
     local guide = self.openXPGuide
     local settings = _G.ShortestPathForeverDB
     local map, x, y, title
@@ -505,7 +513,7 @@ function M:SyncOpenXP()
         and math.abs(previous.y - y) < .001 then return end
     local owned = api.CurrentStop(OPENXP_OWNER)
     local otherJourney = api.CurrentStop("RestedXP") or (not owned and api.Active())
-    if not (owned or otherJourney) and api.Journey then
+    if not (owned or otherJourney) and type(api.Journey) == "function" then
         local journey, reason = api.Journey()
         if reason == "loading" then return end
         otherJourney = journey
@@ -533,7 +541,8 @@ end
 
 function M:WatchOpenXP()
     local guide = _G.RXP
-    if not (self.enabled and SUI:IntegrationEnabled("openxp") and hooksecurefunc and ShortestPath() and SUI:IsAddonLoaded("OpenXP")
+    if not (self.enabled and SUI:IntegrationEnabled("openxp") and hooksecurefunc and self:GetOpenXPRouteAPI()
+        and SUI:IsAddonLoaded("OpenXP")
         and not SUI:IsAddonLoaded("RXPGuides") and guide and guide.arrowFrame
         and type(guide.UpdateMap) == "function" and type(guide.UpdateGotoSteps) == "function") then return end
     if self.openXPGuide == guide then return end

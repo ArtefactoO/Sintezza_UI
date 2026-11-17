@@ -151,6 +151,27 @@ local function ResolveProxySwipeColor(owner)
     return tonumber(color.r) or 0, tonumber(color.g) or 0, tonumber(color.b) or 0
 end
 
+function M:GetSwipePreview()
+    local ns = self:ActionBarNamespace()
+    local bars = ns and ns.EAB and ns.EAB.db and ns.EAB.db.profile and ns.EAB.db.profile.bars
+    local shape
+    local canReadShape = type(bars) == "table" and type(ns.AB_LayoutShape) == "function"
+    for _, settings in pairs(canReadShape and bars or {}) do
+        if type(settings) == "table" then
+            local ok, name = pcall(ns.AB_LayoutShape, settings)
+            if ok and not IsSecret(name) and PROXY_SWIPE_TEXTURES[name] and (not shape or name < shape) then shape = name end
+        end
+    end
+    local usingExample = not shape
+    shape = shape or "square"
+    local p = Profile()
+    local r, g, b = ResolveProxySwipeColor({ kind = "actionBars", ns = ns })
+    local mask = not usingExample and ns.SHAPE_MASKS and ns.SHAPE_MASKS[shape]
+    local border = not usingExample and ns.SHAPE_BORDERS and ns.SHAPE_BORDERS[shape]
+    return ResolveProxySwipeTexture(shape, tonumber(p.mainSwipeAlpha) or .55),
+        ResolveProxySwipeTexture(shape, tonumber(p.chargeSwipeAlpha) or .38), r, g, b, usingExample, mask, border
+end
+
 
 local function MaskTextureRegions(frame, mask, depth, alpha)
     if not frame or not mask or (depth or 0) > 4 then return end

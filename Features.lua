@@ -3,7 +3,7 @@ local Text = SUI.Text
 
 local function P(key) return SUI:GetModuleProfile(key) or {} end
 
-local GameBar, SpecBar = SUI.GameBar, SUI:GetModule("specBar")
+local GameBar = SUI.GameBar
 local Combat, Teleport = SUI:GetModule("combatAlert"), SUI:GetModule("teleportPrompt")
 local Raid, Plates, Cooldowns = SUI.RaidTools, SUI.Nameplates, SUI.CooldownMasks
 local Fonts = SUI:GetModule("fontCompatibility")
@@ -33,15 +33,6 @@ function GameBar:WantsEvent(event)
         return miniOn and mini.showResting ~= false
     end
     return mainOn or miniOn
-end
-
-function SpecBar:WantsEvent(event)
-    if event == "PLAYER_REGEN_ENABLED" and self.pendingSecureUpdate then return true end
-    if not self:HasActiveButtons() then return false end
-    if SUI.isForever then
-        return event ~= "PLAYER_LOOT_SPEC_UPDATED" and event ~= "PLAYER_SPECIALIZATION_CHANGED"
-    end
-    return event ~= "CHARACTER_POINTS_CHANGED" and event ~= "PLAYER_TALENT_UPDATE"
 end
 
 function Combat:WantsEvent(event)
@@ -82,7 +73,7 @@ end
 function Plates:WantsEvent(event)
     if event == "PLAYER_REGEN_ENABLED" and (self.pendingShutdown or self.pendingBuffRows) then return true end
     if not self.runtimeWanted then return false end
-    if event == "UNIT_AURA" then return P("nameplates").learnDebuffs == true end
+    if event == "UNIT_AURA" then return self.auraRulesOn == true end
     return true
 end
 
@@ -140,9 +131,11 @@ for _, item in ipairs({
 }) do
     Add("panels", item[1], item[2], "gameBar", { "miniBar", item[1] })
 end
-Add("panels", "specBar", Text("Панель талантов / спека", "Talent and spec bar"), "specBar", { "enabled" })
-Add("panels", "specActive", SUI.isForever and Text("Кнопка талантов", "Talent button") or Text("Кнопка специализации", "Spec button"), "specBar", { "showActive" })
-Add("panels", "specLoot", Text("Специализация добычи", "Loot specialization"), "specBar", { "showLoot" }, Retail, Text("В Forever нет отдельного выбора спека добычи.", "Forever does not have a separate loot specialization."))
+if not SUI.isForever then
+    Add("panels", "specBar", Text("Панель специализаций", "Specialization bar"), "specBar", { "enabled" })
+    Add("panels", "specActive", Text("Кнопка специализации", "Spec button"), "specBar", { "showActive" })
+    Add("panels", "specLoot", Text("Специализация добычи", "Loot specialization"), "specBar", { "showLoot" })
+end
 for _, id in ipairs({ "CHARACTER", "SPELLBOOK", "TALENTS", "FRIENDS", "GUILD", "GROUP_FINDER", "PROFESSION",
     "GAMEMENU", "HOME", "ACHIEVEMENTS", "ENCOUNTER_JOURNAL", "COLLECTIONS", "BLIZZARD_SHOP", "BAGS" }) do
     local entry = GameBar:GetButtonEntry(id)
@@ -153,14 +146,11 @@ end
 Add("raid", "raidTools", Text("Рейд-инструменты", "Raid tools"), "raidTools", { "enabled" })
 Add("raid", "partyMap", Text("Группа на карте", "Party on the map"), "partyMap", { "enabled" })
 Add("raid", "partyMap.markers", Text("Метки группы на карте", "Party markers"), "partyMap", { "markers" })
-local function Forever() return SUI.isForever end
-local foreverOnly = Text("Доступно в WoW Forever.", "Available in WoW Forever.")
-Add("raid", "mapDisplay.stackTabs", Text("Разнести вкладки справа", "Stack right-side tabs"), "mapDisplay", { "stackTabs" }, Forever, foreverOnly)
 Add("raid", "mapWaypointControls", Text("Личная метка Sintezza UI", "Sintezza UI waypoint"), "mapWaypointControls", { "enabled" },
     function() return SUI.isForever end, Text("Доступно в WoW Forever.", "Available in WoW Forever."))
-Add("raid", "shortestPathMinimap", Text("Маршрут Shortest Path", "Shortest Path route"), "shortestPathMinimap", { "enabled" },
+Add("raid", "shortestPathMinimap", Text("Золотые точки маршрута", "Gold route dots"), "shortestPathMinimap", { "enabled" },
     function() return SUI:GetModule("shortestPathMinimap"):IsSupported() end,
-    Text("Нужна совместимая версия Shortest Path Forever.", "Requires a compatible version of Shortest Path Forever."))
+    Text("Нужен доступ к отрисовке маршрута Shortest Path Forever.", "Requires access to the Shortest Path Forever route renderer."))
 Add("raid", "transportMap", Text("Таймеры транспорта на карте", "Transport timers on the world map"), "transportMap", { "enabled" },
     function() return SUI.isForever end, Text("Расписание рассчитано для WoW Forever.", "Schedules are for WoW Forever."))
 Add("raid", "transportMap.minimap", Text("Таймеры транспорта на миникарте", "Transport timers on the minimap"), "transportMap", { "minimap" },
@@ -189,14 +179,7 @@ Add("visual", "stealth", Text("Сигнал скрытности", "Stealth aler
 Add("visual", "stealthEnter", Text("Вход в скрытность", "Enter stealth"), "combatAlert", { "showStealthEnter" })
 Add("visual", "stealthLeave", Text("Выход из скрытности", "Leave stealth"), "combatAlert", { "showStealthLeave" })
 Add("visual", "nameplates", Text("Дополнения к неймплейтам", "Nameplate extensions"), "nameplates", { "enabled" })
-Add("visual", "threat", Text("Угроза в открытом мире", "Open-world threat"), "nameplates", { "openWorldThreat" })
-Add("visual", "threatNear", Text("Предупреждение об угрозе", "Threat warning"), "nameplates", { "nearThreat" })
-Add("visual", "threatBorder", Text("Контур угрозы", "Threat border"), "nameplates", { "threatBorderEnabled" })
-Add("visual", "threatFill", Text("Заливка угрозы", "Threat fill"), "nameplates", { "threatFillEnabled" })
-Add("visual", "targetPattern", Text("Узор выбранной цели", "Target pattern"), "nameplates", { "targetPattern", "enabled" })
 Add("visual", "auraRules", Text("Правила окраски по аурам", "Aura color rules"), "nameplates", nil).resolve = function() return Plates.AuraRules:Profile(), "enabled" end
-Add("visual", "pandemic", Text("Подсветка Pandemic", "Pandemic highlight"), "nameplates", { "auraRules", "pandemic", "enabled" })
-Add("visual", "learnDebuffs", Text("Запоминать увиденные дебаффы", "Remember seen debuffs"), "nameplates", { "learnDebuffs" })
 
 Add("cooldowns", "cooldownMasks", Text("Иконки и откат", "Icons and cooldowns"), "cooldownMasks", { "enabled" })
 Add("cooldowns", "actionBars", Text("Свайп панелей действий EUI", "EllesmereUI action bar swipe"), "cooldownMasks", { "actionBars" })
@@ -213,9 +196,6 @@ Add("compat", "absorb", Text("Отступ щитов DandersFrames", "DandersFr
 Add("compat", "hover", Text("Анимация наведения", "Hover animation"), "interactionEffects", { "enabled" })
 Add("compat", "chatWhisperErrors", Text("Скрывать ошибки служебных шепотов", "Hide addon whisper errors"), "chatWhisperErrors", { "enabled" },
     function() return SUI.isForever end, Text("Доступно в WoW Forever.", "Available in WoW Forever."))
-Add("compat", "lueurCompatibility", Text("Lueur: подсветка вне боя", "Lueur: highlight outside combat"), "lueurCompatibility", { "enabled" },
-    function() return SUI:GetModule("lueurCompatibility"):IsAvailable() end,
-    Text("Требуется Lueur в Forever. Подсветка остается вне боя, а в бою приостанавливается.", "Requires Lueur in Forever. Highlighting pauses in combat."))
 local minimap = Add("compat", "minimap", Text("Кнопка Sintezza UI у миникарты", "Sintezza UI minimap button"))
 minimap.resolve = function() return SUI.db and SUI.db.minimap, "hidden" end
 minimap.invert = true
@@ -245,9 +225,8 @@ local requirements = {
     ["rounded.dandersFrames"] = { DANDERS },
     ["rounded.unitFrames"] = { UNIT_FRAMES },
     ["rounded.nameplates"] = { NAMEPLATES },
-    lueurCompatibility = { { "Lueur", "Lueur" } },
 }
-local foreverRequirements = { transportMap = true, shortestPathMinimap = true, rangeFade = true, lueurCompatibility = true }
+local foreverRequirements = { transportMap = true, shortestPathMinimap = true, rangeFade = true }
 
 function SUI:GetAddonAvailability(folder, title)
     local api = C_AddOns

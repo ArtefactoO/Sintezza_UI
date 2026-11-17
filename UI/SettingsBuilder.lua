@@ -7,14 +7,17 @@ SUI.SettingsBuilder = B
 function B:CreateTabbedPage(parent, titleText, subtitleText, tabDefinitions, hideTabBar)
     local page, canvas = W:Page(parent)
     page.tabs, page.refreshers, page.refreshErrors = {}, {}, {}
+    page.searchRows = {}
     page.selectedTab = tabDefinitions[1].key
     page.headerTitle, page.headerSubtitle = titleText, subtitleText
 
     local tabs
     if not hideTabBar then
         local labels, values = {}, {}
-        for index, definition in ipairs(tabDefinitions) do
-            labels[index], values[index] = definition.title, definition.key
+        for _, definition in ipairs(tabDefinitions) do
+            if not definition.hidden then
+                labels[#labels + 1], values[#values + 1] = definition.title, definition.key
+            end
         end
         tabs = W:Segmented(canvas, labels, values,
             function() return page.selectedTab end,
@@ -84,17 +87,17 @@ end
 
 function B:AddSection(page, tabKey, title, description)
     local tab = assert(page.tabs[tabKey], "unknown settings tab")
-    local card = W:Section(tab.body, title, description or "")
+    local card = W:Section(tab.body, title, description, "settings")
     card:SetPoint("TOPLEFT", tab.body, "TOPLEFT", 0, tab.nextY)
     card:SetPoint("TOPRIGHT", tab.body, "TOPRIGHT", 0, tab.nextY)
-    card.nextY, card.widgets = -(card.headerHeight + 4), {}
+    card.nextY, card.widgets, card.settingsTab = -(card.headerHeight + 4), {}, tabKey
+    page.searchRows[#page.searchRows + 1] = card
     tab.cards[#tab.cards + 1] = card
     return card
 end
 
-B.AddCard = B.AddSection
 
-function B:BeginColumns(page, tabKey, gap)
+function B:BeginColumns(page, tabKey, gap, leftShare)
     local tab = assert(page.tabs[tabKey], "unknown settings tab")
     local group = CreateFrame("Frame", nil, tab.body)
     group:SetPoint("TOPLEFT", tab.body, "TOPLEFT", 0, tab.nextY)
@@ -104,10 +107,19 @@ function B:BeginColumns(page, tabKey, gap)
     gap = gap or 12
     group.left:SetPoint("TOPLEFT")
     group.left:SetPoint("BOTTOMLEFT")
-    group.left:SetPoint("TOPRIGHT", group, "TOP", -(gap * .5), 0)
     group.right:SetPoint("TOPRIGHT")
     group.right:SetPoint("BOTTOMRIGHT")
-    group.right:SetPoint("TOPLEFT", group, "TOP", gap * .5, 0)
+    if leftShare then
+        local function Resize(_, width)
+            group.left:SetWidth(math.max(1, (width - gap) * leftShare))
+        end
+        group.right:SetPoint("TOPLEFT", group.left, "TOPRIGHT", gap, 0)
+        group:HookScript("OnSizeChanged", Resize)
+        Resize(group, group:GetWidth())
+    else
+        group.left:SetPoint("TOPRIGHT", group, "TOP", -(gap * .5), 0)
+        group.right:SetPoint("TOPLEFT", group, "TOP", gap * .5, 0)
+    end
     group.offsets = { left = 0, right = 0 }
     group.tab = tab
     return group
@@ -116,10 +128,11 @@ end
 function B:AddColumnSection(page, group, side, title, description)
     side = side == "right" and "right" or "left"
     local column = group[side]
-    local section = W:Section(column, title, description or "")
+    local section = W:Section(column, title, description, "settings")
     section:SetPoint("TOPLEFT", column, "TOPLEFT", 0, group.offsets[side])
     section:SetPoint("TOPRIGHT", column, "TOPRIGHT", 0, group.offsets[side])
-    section.nextY, section.widgets = -(section.headerHeight + 4), {}
+    section.nextY, section.widgets, section.settingsTab = -(section.headerHeight + 4), {}, group.tab.key
+    page.searchRows[#page.searchRows + 1] = section
     section.columnGroup, section.columnSide = group, side
     return section
 end
@@ -129,6 +142,10 @@ function B:AddRow(page, card, row)
     row:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, card.nextY)
     card.nextY = card.nextY - row:GetHeight()
     card.widgets[#card.widgets + 1] = row
+    if card.settingsTab and (row.label or row.settingsID) then
+        row.settingsTab = card.settingsTab
+        page.searchRows[#page.searchRows + 1] = row
+    end
     page:AddRefresher(row)
     return row
 end

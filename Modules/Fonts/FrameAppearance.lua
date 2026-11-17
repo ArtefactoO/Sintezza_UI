@@ -75,6 +75,9 @@ function M:GetFrameSurface(key)
             if sub == "player" or sub == "target" or sub == "focus" or (sub == "boss" and s.db.borderCustom) then
                 StandardEdge(s, "unitframes")
             else
+                local donor = sub == "boss" and ns.UF_BossBorderSettings and ns.UF_BossBorderSettings()
+                    or ns.GetMiniDonorSettings and ns.GetMiniDonorSettings(sub)
+                if donor then s.previewBorder = { kind = kind, db = donor }; StandardEdge(s.previewBorder, "unitframes") end
                 s.note = SUI.Text("Окантовка наследуется от основной рамки.", "The border comes from the parent frame.")
             end
         end
@@ -90,6 +93,9 @@ function M:GetFrameSurface(key)
             Dimensions(s, "frameWidth", "frameHeight", { 30, 300, 15, 180 })
             StandardEdge(s, "unitframes")
         elseif p and not s.stock then
+            local party = ns._scaledPartyProxy
+            if party then s.previewBorder = { kind = kind, db = party }; StandardEdge(s.previewBorder, "unitframes") end
+            s.previewWidth, s.previewHeight = p.partyFrameWidth, p.partyFrameHeight
             s.note = SUI.Text("Размер и окантовка группы зависят от разделов профиля EllesmereUI.", "Party size and border use the EllesmereUI profile.")
         end
     elseif kind == "plates" then
@@ -133,6 +139,13 @@ function M:GetFrameSurface(key)
         end
     end
     return s
+end
+
+function M:GetConfiguredFrameDimension(surface, axis)
+    local field = surface and surface[axis]
+    local value = field and tonumber(surface.db[field])
+    if not value then return end
+    return value + (axis == "width" and (surface.shift or 0) or 0)
 end
 
 function M:GetFrameEdge(surface)

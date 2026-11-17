@@ -76,11 +76,50 @@ function SRT:StartReadyCheck()
     if not self:SafeCall(fn) then self:Error(Text("Не удалось запустить проверку готовности.", "Could not start the ready check.")) end
 end
 
+function SRT:GetPullSeconds()
+    return math.max(3, math.min(20, math.floor(tonumber(self.profile.actions.pullSeconds) or 10)))
+end
+
+function SRT:PreviewPullCountdown()
+    local preview = self.pullPreview
+    if not preview then
+        local W, T = SUI.Widgets, SUI.SettingsTheme
+        preview = W:QuietCard(UIParent, Text("Предпросмотр отсчета", "Countdown preview"))
+        preview:SetSize(250, 120)
+        preview:SetPoint("TOP", UIParent, "TOP", 0, -140)
+        preview:SetFrameStrata("DIALOG")
+        preview:EnableMouse(true)
+        local close = W:CloseButton(preview, function() preview:Hide() end, nil, true)
+        close:SetPoint("TOPRIGHT", -8, -8)
+        preview.time = W:Label(preview, "", 34, T.text, "display")
+        preview.time:SetPoint("CENTER", 0, -13)
+        preview:SetScript("OnHide", function(frame) frame:SetScript("OnUpdate", nil) end)
+        self.pullPreview = preview
+    end
+    preview.ends = GetTime() + self:GetPullSeconds()
+    local function Update(frame)
+        local remaining = frame.ends - GetTime()
+        if remaining <= -1 then frame:Hide(); return end
+        local value = math.max(0, math.ceil(remaining))
+        if frame.value ~= value then
+            frame.value = value
+            frame.time:SetText(value > 0 and tostring(value) or Text("В бой!", "Pull!"))
+        end
+    end
+    Update(preview)
+    preview:SetScript("OnUpdate", Update)
+    preview:Show()
+end
+
 function SRT:DoPull(cancel)
     if not self.profile.enabled or self.profile.actions.pullTimer == false then return end
+    if not (IsInGroup and IsInGroup()) then
+        return self:Error(Text("Отсчет до боя доступен в группе. Проверьте его в настройках Raid Tools.",
+            "Pull countdowns need a group. Try the preview in Raid Tools settings."))
+    end
     if not self:CanLeadAction() then return self:Error(Text("Нужны права лидера группы или помощника.", "Requires leader or assistant permissions.")) end
     if self:ChatLocked() then return self:Error(Text("Отсчет сейчас недоступен.", "Countdown is unavailable.")) end
     if not (C_PartyInfo and C_PartyInfo.DoCountdown) then return self:Error(Text("API отсчета недоступен.", "Countdown is unavailable on this client.")) end
-    local seconds = cancel and 0 or math.max(3, math.min(20, math.floor(tonumber(self.profile.actions.pullSeconds) or 10)))
+    local seconds = cancel and 0 or self:GetPullSeconds()
     if not self:SafeCall(C_PartyInfo.DoCountdown, seconds) then self:Error(Text("Не удалось запустить отсчет.", "Could not start the countdown.")) end
 end

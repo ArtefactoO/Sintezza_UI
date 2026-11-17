@@ -1,6 +1,7 @@
 local _, SUI = ...
 local M = SUI.CombatAlert
-local ATLAS = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\signal-variants.png"
+local MEDIA = "Interface\\AddOns\\Sintezza_UI\\Media\\CombatAlert\\"
+local ATLAS = MEDIA .. "signal-variants.png"
 
 M.visualVariants = {
     BANNER = {
@@ -9,9 +10,6 @@ M.visualVariants = {
     BRACKETS = {
         { cell = 1, width = .62, height = .85, captionSide = -1, enterX = -.47, leaveX = -.44 },
         { cell = 1, width = .62, height = .85, captionSide = 1, enterX = .47, leaveX = .44, flip = true },
-    },
-    FISSURE = {
-        { cell = 2, width = 1.95, height = .55, scaleFromX = .07, scaleToX = .07, glow = true },
     },
     PLAQUE = {
         { cell = 3, width = 1.92, height = .64, fitCaption = true, enterX = -.52, leaveX = .34 },
@@ -25,11 +23,6 @@ M.visualVariants = {
         stealth = true,
         { cell = 5, width = .50, height = .84, x = -.186, enterX = -.31, leaveX = -.32 },
         { cell = 5, width = .50, height = .84, x = .186, enterX = .31, leaveX = .32, flip = true },
-    },
-    MIST = {
-        stealth = true,
-        { cell = 6, width = 2.55, height = .83, fitCaption = true, enterX = -.28, leaveX = .30,
-            scaleFromX = .73, scaleToX = 1.30, scaleFromY = .78, scaleToY = 1.20, glow = true },
     },
 }
 
@@ -95,20 +88,19 @@ function M:BuildVariantPart(rig, info)
     return part
 end
 
-local function PaintParts(rig, r, g, b, a, glow)
+local function PaintParts(rig, r, g, b, a)
     for _, part in ipairs(rig.activeVariant or {}) do
-        local opacity = part.info.glow and a * math.min(1, .53 + glow) or a
-        part.art:SetVertexColor(r, g, b, opacity)
+        part.art:SetVertexColor(r, g, b, a)
         if part.mark then part.mark:SetVertexColor(r, g, b, a) end
         if part.emblem then part.emblem:SetAlpha(a) end
     end
 end
 
-function M:TintVariant(rig, r, g, b, a, glow)
+function M:TintVariant(rig, r, g, b, a)
     rig.variantColor = rig.variantColor or {}
     local color = rig.variantColor
-    color[1], color[2], color[3], color[4], color[5] = r, g, b, a, glow
-    if rig.activeVariant then PaintParts(rig, r, g, b, a, glow) end
+    color[1], color[2], color[3], color[4] = r, g, b, a
+    if rig.activeVariant then PaintParts(rig, r, g, b, a) end
 end
 
 function M:HideVariant(rig)

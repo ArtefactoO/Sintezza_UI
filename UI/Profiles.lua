@@ -1,9 +1,11 @@
 local _, SUI = ...
 local Text = SUI.Text
-local W = SUI.Widgets
+local W, B = SUI.Widgets, SUI.SettingsBuilder
 
 local function BuildPage(parent)
-    local page, canvas = W:Page(parent)
+    local page = B:CreateTabbedPage(parent, Text("Профили", "Profiles"), nil, { { key = "main" } }, true)
+    local tab = page.tabs.main
+    local canvas = tab.body
     local active = W:Section(canvas, Text("Активный профиль", "Active profile"), Text("Защищенные изменения применяются после боя.", "Protected changes apply after combat."))
     active:SetPoint("TOPLEFT", canvas, "TOPLEFT", 0, -12)
     active:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, -12)
@@ -70,7 +72,9 @@ local function BuildPage(parent)
         button:SetPoint("TOPLEFT", modules, "TOPLEFT", column * 160, -48 - row * 34)
     end
 
-    function page:Refresh() activeRow:Refresh() end
+    tab.nextY = -374
+    canvas:SetHeight(376)
+    function page:OnRefresh() activeRow:Refresh() end
     return page
 end
 

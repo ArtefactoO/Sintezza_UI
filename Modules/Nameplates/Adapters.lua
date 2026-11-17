@@ -25,11 +25,6 @@ function M:RegisterNameplateAdapter(adapter)
     return true
 end
 
-function M:AdapterSupports(capability)
-    local adapter = self.activeAdapter
-    return adapter and adapter.capabilities and adapter.capabilities[capability] == true or false
-end
-
 function M:GetAdapterPlate(unit)
     local adapter = self.activeAdapter
     if not adapter or not unit then return nil end
@@ -85,10 +80,6 @@ end
 -- Preferred path: the original full EllesmereUI integration.
 local EllesmereAdapter = {
     key = "ellesmere", name = "EllesmereUI", priority = 100,
-    capabilities = {
-        targetTexture = true, targetPattern = true,
-        threatBorder = true, threatFill = true,
-    },
 }
 
 function EllesmereAdapter:Probe()
@@ -160,13 +151,6 @@ function EllesmereAdapter:InstallHooks(module)
     for _, method in ipairs({ "RefreshBorder", "RefreshAllSettings" }) do
         if type(namespace[method]) == "function" then EnsureHook(method, RefreshRoundedEffects) end
     end
-    if type(namespace.NP_ApplyForeverLevelBox) == "function" then
-        EnsureHook("NP_ApplyForeverLevelBox", function(plate)
-            if M.runtimeWanted and plate and plate.unit and M.plates[plate.unit] == plate then
-                SUI:SafeModuleCall(M, "nameplate level box font", M.UpdatePlateTextStyle, plate, false, "level")
-            end
-        end)
-    end
     module:InstallBuffRows(namespace)
     return not hookFailed
 end
@@ -178,7 +162,6 @@ M:RegisterNameplateAdapter(EllesmereAdapter)
 local BlizzardAdapter = {
     key = "blizzard", name = "Blizzard", priority = 10,
     wrappers = setmetatable({}, { __mode = "k" }),
-    capabilities = { targetPattern = true, threatBorder = true, auraRules = true },
 }
 local THIRD_PARTY_OWNERS = {
     "Plater", "Platynator", "Kui_Nameplates", "NeatPlates",
@@ -223,6 +206,11 @@ function BlizzardAdapter:Iterate(module, callback)
         local plate = self:GetPlate(module, unit)
         if plate and not seen[plate] then seen[plate] = true; callback(unit, plate) end
     end
+end
+
+function M:UsesBlizzardNameplates()
+    if self.adapterKey and self.adapterKey ~= "blizzard" then return false end
+    return not EllesmereAdapter:Probe() and BlizzardAdapter:Probe() ~= nil
 end
 
 M:RegisterNameplateAdapter(BlizzardAdapter)

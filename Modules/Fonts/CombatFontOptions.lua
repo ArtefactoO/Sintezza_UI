@@ -11,16 +11,7 @@ local unknown = Text("Покрытие не проверено", "Coverage unver
 local locale = GetLocale()
 local alphabetKey = locale == "ruRU" and "russian" or (locale == "enUS" or locale == "enGB") and "latin"
 local alphabetSize = locale == "ruRU" and 66 or 52
-local cyrillic = {}
-do
-    local lower = "абвгде\209\145жзийклмнопрстуфхцчшщъыьэюя"
-    local upper = "АБВГДЕ\208\129ЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
-    for index = 1, #upper, 2 do cyrillic[upper:sub(index, index + 1)] = lower:sub(index, index + 1) end
-end
-
-local function SearchKey(value)
-    return (value:lower():gsub("[\208\209][\128-\191]", cyrillic)):gsub("\209\145", "е")
-end
+local SearchKey = SUI.SettingsSearchKey
 
 local relog = Text("Для цифр над целью выйди до выбора персонажа и войди снова.",
     "For numbers above targets, log out to character selection and log back in.")
@@ -29,8 +20,8 @@ local statuses = {
     unsupported = Text("Боевой шрифт недоступен в этой версии клиента.", "The combat font is unavailable on this client."),
     missing = Text("Выбранный файл шрифта не загрузился.", "The selected font file could not be loaded."),
     native = Text("Используется шрифт клиента.", "Using the game client font."),
-    applied = Text("Шрифт сохранен. ", "Font saved. ") .. relog,
-    restored = Text("Прежний шрифт восстановлен. ", "Previous font restored. ") .. relog,
+    applied = Text("Шрифт сохранен", "Font saved"),
+    restored = Text("Прежний шрифт восстановлен", "Previous font restored"),
 }
 local owners = {
     FontMagic = Text("Боевые цифры переопределяет FontMagic. Отключи его и войди в персонажа снова.",
@@ -42,30 +33,39 @@ local function PreviewFont(label, path, size, flags)
         local ok, result = pcall(label.SetFont, label, path, size, flags)
         if ok and (not issecretvalue or not issecretvalue(result)) and result ~= false then return end
     end
-    T:Font(label, size, flags)
+    local fallback = Sintezza_Theme.Theme:GetGameTextFont()
+    if fallback and fallback ~= path then label:SetFont(fallback, size, flags) end
 end
 
 local function BuildPage(parent)
     local title = Text("Боевой текст", "Combat text")
-    local page = B:CreateTabbedPage(parent, title, nil, {
-        { key = "font", title = Text("Шрифт", "Font") },
-    })
-    local toggleCard = B:AddSection(page, "font", title)
-    local enabled = W:Toggle(toggleCard, Text("Переопределять боевой шрифт", "Override combat text font"),
+    local page = B:CreateTabbedPage(parent, title, nil, { { key = "font" } }, true)
+    local controls = B:BeginColumns(page, "font", 8)
+    local enabled = W:Toggle(controls, Text("Заменять боевой шрифт", "Override combat font"),
         function() return M:Profile().enabled end, function(value)
             M:Profile().enabled = value
             M:Update()
             page:Refresh()
-        end)
-    B:AddRow(page, toggleCard, enabled)
-    local alerts = W:Toggle(toggleCard, Text("Использовать шрифт в сигналах Sintezza", "Use font in Sintezza alerts"),
+        end, Text("Использует выбранный шрифт для боевых цифр и текста клиента.",
+            "Uses the selected font for the client’s combat numbers and text."), true, "inline")
+    enabled:SetWidth(212)
+    enabled:SetPoint("TOPLEFT", controls, "TOPLEFT", 14, 0)
+    local alerts = W:Toggle(controls, Text("Шрифт в сигналах", "Font in alerts"),
         function() return M:Profile().useInAlerts ~= false end, function(value)
             M:Profile().useInAlerts = value
             M:Update()
             page:Refresh()
-        end)
-    B:AddRow(page, toggleCard, alerts)
-    B:FinishCard(page, "font", toggleCard)
+        end, Text("Использует выбранный шрифт для надписей боя, скрытности, здоровья и агро.",
+            "Uses the selected font for combat, stealth, health and aggro alert captions."), true, "inline")
+    alerts:SetWidth(176)
+    alerts:SetPoint("LEFT", enabled, "RIGHT", 8, 0)
+    for _, toggle in ipairs({ enabled, alerts }) do
+        toggle.settingsTab = "font"
+        page.searchRows[#page.searchRows + 1] = toggle
+        page:AddRefresher(toggle)
+    end
+    controls.offsets.left = -enabled:GetHeight() - 10
+    B:FinishColumns(page, "font", controls)
 
     local columns = B:BeginColumns(page, "font")
     local catalog = B:AddColumnSection(page, columns, "left", Text("Шрифты", "Fonts"))
@@ -80,7 +80,9 @@ local function BuildPage(parent)
         coverage = value
         page:Refresh()
     end, { all = 1, russian = 2 })
-    B:AddRow(page, catalog, filter)
+    B:AddRow(page, catalog, W:Help(filter,
+        Text("Покрытие показывает, сколько знаков есть в файле шрифта. Для русского текста проверяются 10 цифр и 66 букв. Фильтр оставляет шрифты с полным набором русских букв.",
+            "Coverage counts the characters in the font file. Russian checks include 10 digits and 66 letters. The filter shows fonts with the complete Russian alphabet.")))
     local resultFrame = CreateFrame("Frame", nil, catalog)
     resultFrame:SetHeight(226)
     B:AddRow(page, catalog, resultFrame)
@@ -98,19 +100,41 @@ local function BuildPage(parent)
     local sample = CreateFrame("Frame", nil, preview, "BackdropTemplate")
     sample:SetHeight(113)
     T:Backdrop(sample, T.input, T.lineSoft)
-    local damage = W:Label(sample, "12 840", 32, T.accent)
+    local native = M:NativeFont()
+    local damage = sample:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    PreviewFont(damage, native, 32, "OUTLINE")
+    damage:SetText("12 840")
     damage:SetPoint("TOP", 0, -16)
-    local effect = W:Label(sample, locale == "ruRU" and "Сопротивление · +486" or "Resist · +486", 14, T.text)
+    Sintezza_Theme:Tint(damage, "SetTextColor", T.accent)
+    local example = locale == "ruRU" and "Сопротивление · +486" or "Resist · +486"
+    local effect = sample:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    PreviewFont(effect, native, 14, "OUTLINE")
     effect:SetPoint("TOP", damage, "BOTTOM", 0, -5)
+    effect:SetPoint("LEFT", sample, "LEFT", 12, 0)
+    effect:SetPoint("RIGHT", sample, "RIGHT", -12, 0)
+    effect:SetJustifyH("CENTER")
+    effect:SetWordWrap(true)
+    if effect.SetNonSpaceWrap then effect:SetNonSpaceWrap(true) end
+    if effect.SetMaxLines then effect:SetMaxLines(2) end
+    Sintezza_Theme:Tint(effect, "SetTextColor", T.text)
+    effect:SetText(example)
     B:AddRow(page, preview, sample)
+
+    local testText = W:EditBox(preview, Text("Текст для проверки шрифта", "Type text to test the font"), function() end)
+    testText:SetMaxLetters(80)
+    testText:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    testText:HookScript("OnHide", function(self) self:ClearFocus() end)
+    testText:HookScript("OnTextChanged", function(self)
+        local value = self:GetText()
+        effect:SetText(value == "" and example or (value:gsub("|", "||")))
+    end)
+    B:AddRow(page, preview, testText)
     local coverageText = W:Label(preview, "", 11, T.muted)
     coverageText:SetHeight(28)
     coverageText:SetJustifyH("LEFT")
     B:AddRow(page, preview, coverageText)
-    local status = W:Label(preview, "", 11, T.muted)
-    status:SetHeight(49)
-    status:SetJustifyH("LEFT")
-    status:SetWordWrap(true)
+    local status = W:SettingRow(preview, "")
+    status.label:SetPoint("RIGHT", status, "RIGHT", -10, 0)
     B:AddRow(page, preview, status)
 
     local selected, saved = "DEFAULT", nil
@@ -130,8 +154,8 @@ local function BuildPage(parent)
     B:FinishColumns(page, "font", columns)
 
     local custom = B:AddSection(page, "font", Text("Свои шрифты", "Custom fonts"),
-        Text("Слоты 1.ttf–20.ttf в Sintezza_UI/Media/CombatFonts/Custom. Проверка покрытия описана в README.",
-            "Slots 1.ttf–20.ttf in Sintezza_UI/Media/CombatFonts/Custom. See the README for coverage checks."))
+        Text("Свои файлы можно положить в Sintezza_UI/Media/CombatFonts/Custom под именами 1.ttf–20.ttf. Если покрытие файла неизвестно, используй поле под предпросмотром.",
+            "Add files named 1.ttf–20.ttf to Sintezza_UI/Media/CombatFonts/Custom. If coverage is unverified, try characters in the field below the preview."))
     B:FinishCard(page, "font", custom)
     local shared = B:AddSection(page, "font", Text("Шрифты интерфейса и заголовков", "Interface and heading fonts"))
     B:AddRow(page, shared, W:ActionRow(shared, "Sintezza Theme", Text("Открыть", "Open"),
@@ -202,14 +226,19 @@ local function BuildPage(parent)
         apply:SetEnabled(current ~= nil and selected ~= "DEFAULT")
         reset:SetEnabled(not not hasOverride)
         local message = statuses[M.status] or statuses.native
+        local hint
         if owner and (hasOverride or pendingSelection) then
-            message = owners[owner]
+            message = Text("Шрифт задает другой аддон", "Font managed by another addon")
+            hint = owners[owner]
         elseif pendingSelection then
             message = Text("Предпросмотр", "Preview")
         elseif M.status == "combat" then
             message = statuses.combat
+        elseif M.status == "applied" or M.status == "restored" then
+            hint = relog
         end
-        status:SetText(message or "")
+        status.label:SetText(message or "")
+        W:Help(status, hint)
     end
     search:HookScript("OnTextChanged", function()
         list:SetVerticalScroll(0)

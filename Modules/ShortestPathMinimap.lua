@@ -3,10 +3,9 @@ local M = SUI:RegisterModule("shortestPathMinimap", {})
 local Painter = {}
 Painter.__index = Painter
 local ADDON = "ShortestPathForever"
-local SUPPORTED_VERSION = "v1.37.1"
 local ART = "Interface\\AddOns\\Sintezza_UI\\Media\\ShortestPathDot.tga"
 local WORLD_POOL = "ShortestPathForeverRoutePinTemplate"
-local DOT_SIZE = 6.5
+local TINT_ART = "Interface\\AddOns\\Sintezza_UI\\Media\\ShortestPathDotTint.tga"
 local ENTER_TIME, LEAVE_TIME = .24, .20
 local SLIDE_TIME = .14 -- Bridge the 100 ms minimap samples before settling.
 
@@ -19,22 +18,27 @@ local function InCombat()
 end
 
 local function CanPaint(host)
-    local layer = host and host.strokeLayer
-    local animation = layer and layer.animation
-    if layer and host.GetParent and host.IsVisible and host.GetFrameLevel and host.IsProtected
-        and not host:IsProtected() and layer.SetAlpha and animation and animation.Play and animation.IsPlaying
+    local hostType = type(host)
+    if hostType ~= "table" and hostType ~= "userdata" then return false end
+    local layer = host.strokeLayer
+    local layerType = type(layer)
+    if layerType ~= "table" and layerType ~= "userdata" then return false end
+    local animation = layer.animation
+    local animationType = type(animation)
+    if animationType ~= "table" and animationType ~= "userdata" then return false end
+    return animation and type(layer.SetAlpha) == "function"
+        and type(animation.Play) == "function" and type(animation.IsPlaying) == "function"
+        and type(host.GetParent) == "function" and type(host.IsVisible) == "function"
+        and type(host.GetFrameLevel) == "function" and type(host.GetEffectiveScale) == "function"
+        and type(host.GetSize) == "function" and type(host.IsProtected) == "function"
+        and not host:IsProtected()
         and type(host.lines) == "table" and type(host.underlines) == "table" and type(host.dots) == "table"
-        and hooksecurefunc and CreateFrame then
-        return true
-    end
+        and type(hooksecurefunc) == "function" and type(CreateFrame) == "function"
 end
 
 local function SupportedHost()
     local host = _G.ShortestPathForeverMinimapRoute
-    if C_AddOns and C_AddOns.GetAddOnMetadata
-        and C_AddOns.GetAddOnMetadata(ADDON, "Version") == SUPPORTED_VERSION and CanPaint(host) then
-        return host
-    end
+    if CanPaint(host) then return host end
 end
 
 function M:IsSupported()
@@ -49,6 +53,30 @@ local function Fade(texture, from, to, duration)
     alpha:SetDuration(duration)
     alpha:SetSmoothing("IN_OUT")
     return group, alpha
+end
+
+function M:GetDotStyle()
+    local profile = SUI:GetModuleProfile("shortestPathMinimap") or {}
+    local defaults = SUI.RouteDotDefaults
+    local size, color = tonumber(profile.dotSize), profile.dotColor
+    if not size or size ~= size then size = defaults.size end
+    local parts = type(color) == "table" and color or defaults.color
+    return math.max(4, math.min(16, size)), parts
+end
+
+local function StyleDot(marker, size, color)
+    local r, g, b, a = color.r or color[1] or 1, color.g or color[2] or 1, color.b or color[3] or 1, color.a or color[4] or 1
+    local gold = SUI.RouteDotDefaults.color
+    local texture = marker.texture
+    if marker.size ~= size then
+        texture:SetSize(size, size)
+        marker.size = size
+    end
+    if r == marker.r and g == marker.g and b == marker.b and a == marker.colorAlpha then return end
+    local original = r == gold[1] and g == gold[2] and b == gold[3]
+    texture:SetTexture(original and ART or TINT_ART)
+    if original then texture:SetVertexColor(1, 1, 1, a) else texture:SetVertexColor(r, g, b, a) end
+    marker.r, marker.g, marker.b, marker.colorAlpha = r, g, b, a
 end
 
 local function NewMarker(frame)
@@ -271,6 +299,34 @@ function Painter:DeferHide()
     end)
 end
 
+function Painter:PaintMarkers(count, map, snap, maxDistance, scale)
+    local generation = (self.generation or 0) + 1
+    self.generation = generation
+    local size, color = M:GetDotStyle()
+    for index = 1, count do
+        local point = self.points[index]
+        local marker = self:Match(point, map, generation, maxDistance)
+        if marker then
+            local texture = marker.texture
+            StyleDot(marker, size / scale, color)
+            if marker.alpha ~= point.alpha then
+                texture:SetAlpha(point.alpha)
+                marker.alpha = point.alpha
+            end
+            self:Move(marker, point.x, point.y, snap)
+            if not marker.active then Reveal(marker) end
+            marker.map, marker.generation = map, generation
+            marker.matchX, marker.matchY = point.matchX, point.matchY
+            if point.core then self:Suppress(point.core) end
+            if point.outline then self:Suppress(point.outline) end
+        end
+    end
+    for _, marker in ipairs(self.markers) do
+        if marker.generation ~= generation then self:ReleaseMarker(marker, true) end
+    end
+    self:RefreshMotion()
+end
+
 function Painter:Draw()
     local host = self.host
     if (not self.world and host ~= _G.ShortestPathForeverMinimapRoute)
@@ -305,35 +361,8 @@ function Painter:Draw()
     local resized = self.radius ~= radius or self.width ~= width or self.height ~= height or self.scale ~= scale
     self.map = map
     self.radius, self.width, self.height, self.scale = radius, width, height, scale
-    local generation = (self.generation or 0) + 1
-    self.generation = generation
-    local size = DOT_SIZE / scale
     local maxDistance = radius and (9 * radius / (scale * math.min(width, height))) ^ 2 or (5 / scale) ^ 2
-    for index = 1, count do
-        local point = self.points[index]
-        local marker = self:Match(point, map, generation, maxDistance)
-        if marker then
-            local texture = marker.texture
-            if marker.size ~= size then
-                texture:SetSize(size, size)
-                marker.size = size
-            end
-            if marker.alpha ~= point.alpha then
-                texture:SetAlpha(point.alpha)
-                marker.alpha = point.alpha
-            end
-            self:Move(marker, point.x, point.y, resized)
-            if not marker.active then Reveal(marker) end
-            marker.map, marker.generation = map, generation
-            marker.matchX, marker.matchY = point.matchX, point.matchY
-            self:Suppress(point.core)
-            self:Suppress(point.outline)
-        end
-    end
-    for _, marker in ipairs(self.markers) do
-        if marker.generation ~= generation then self:ReleaseMarker(marker, true) end
-    end
-    self:RefreshMotion()
+    self:PaintMarkers(count, map, resized, maxDistance, scale)
 end
 
 local function Connect(host, world)
@@ -371,6 +400,114 @@ local function Connect(host, world)
     return self
 end
 
+function M:CreateRoutePreview(parent, imageName, points, startX, startY)
+    local assets = "Interface\\AddOns\\Sintezza_UI\\Media\\MapPreview\\"
+    local art = assets .. imageName
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetSize(147, 152)
+    frame:SetClipsChildren(true)
+    local background = frame:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetTexCoord(0, 147 / 256, 0, 152 / 256)
+    local previewLayer = CreateFrame("Frame", nil, frame)
+    previewLayer:SetAllPoints()
+    local arrow = previewLayer:CreateTexture(nil, "OVERLAY")
+    local arrowSize = imageName == "Mini" and 38 or 61
+    arrow:SetSize(arrowSize, arrowSize)
+    arrow:SetTexture(assets .. "PlayerArrow.png")
+
+    local painter = setmetatable({ frame = previewLayer, markers = {}, native = {}, moving = {},
+        points = {}, limit = #points }, Painter)
+    painter.onUpdate = function(owner, elapsed) painter:Animate(owner, elapsed) end
+
+    local path = { { startX, startY, 0 } }
+    local total = 0
+    for index = #points, 1, -1 do
+        local a, b = path[#path], points[index]
+        total = total + math.sqrt((b[1] - a[1]) ^ 2 + (b[2] - a[2]) ^ 2)
+        path[#path + 1] = { b[1], b[2], total }
+    end
+
+    local function Position(distance)
+        local segment = 2
+        while segment < #path and path[segment][3] < distance do segment = segment + 1 end
+        local a, b = path[segment - 1], path[segment]
+        local dx, dy = b[1] - a[1], b[2] - a[2]
+        local part = (distance - a[3]) / (b[3] - a[3])
+        local x, y = a[1] + dx * part, a[2] + dy * part
+        -- Pan the map under the arrow as the player advances. Stable map coordinates
+        -- let the painter match and glide the existing markers between redraws.
+        local panX, panY = (startX - x) * .46, (startY - y) * .24
+        arrow:SetPoint("CENTER", frame, "TOPLEFT", x + panX, -(y + panY))
+        arrow:SetRotation(math.atan2(-dy, dx) - 2.12)
+        -- The sample art has no extra canvas beyond its crop, so use a slight zoom.
+        local left, top = (19 - panX * .72) / 256, (28 - panY * .72) / 256
+        background:SetTexCoord(left, left + 108 / 256, top, top + 112 / 256)
+        return panX, panY
+    end
+
+    local lookAhead = total * .62
+
+    local function Paint(distance, panX, panY)
+        local count = 0
+        for index, point in ipairs(points) do
+            local ahead = path[#path - index + 1][3] - distance
+            if ahead > 0 and ahead <= lookAhead then
+                count = count + 1
+                local item = painter.points[count] or {}
+                painter.points[count] = item
+                item.x, item.y = point[1] + panX, -(point[2] + panY)
+                item.matchX, item.matchY, item.alpha = point[1], point[2], 1
+            end
+        end
+        painter:PaintMarkers(count, imageName, false, 1, math.max(.1, frame:GetEffectiveScale()))
+    end
+
+    local function Stop()
+        frame.elapsed, frame.nextSample = nil, nil
+        frame:SetScript("OnUpdate", nil)
+        painter:Clear(false)
+    end
+
+    function frame:Refresh()
+        if not self:IsVisible() then return end
+        local enabled = SUI:GetFeatureSetting("shortestPathMinimap") == true
+        background:SetTexture(art .. (enabled and "Travel.png" or (SUI:IsAddonLoaded(ADDON) and ".png" or "Clean.png")))
+        arrow:SetShown(enabled)
+        if not enabled then
+            Stop()
+            background:SetTexCoord(0, 147 / 256, 0, 152 / 256)
+        elseif not self.elapsed then
+            Paint(0, Position(0))
+        end
+    end
+
+    function frame:Play()
+        if not SUI:GetFeatureSetting("shortestPathMinimap") then return end
+        Stop()
+        self.elapsed, self.nextSample = 0, 0
+        Position(0)
+        self:SetScript("OnUpdate", function(owner, elapsed)
+            local time = owner.elapsed + elapsed
+            if time >= 6 then
+                Stop()
+                Paint(0, Position(0))
+                return
+            end
+            owner.elapsed = time
+            local distance = total * math.min(1, time / 5.5)
+            local panX, panY = Position(distance)
+            if time >= owner.nextSample then
+                owner.nextSample = time + .1
+                Paint(distance, panX, panY)
+            end
+        end)
+    end
+    frame:SetScript("OnShow", frame.Refresh)
+    frame:SetScript("OnHide", Stop)
+    return frame
+end
+
 local function FindWorldPin(map)
     local canvas = map.GetCanvas and map:GetCanvas()
     if not (canvas and canvas.GetChildren) then return end
@@ -378,8 +515,9 @@ local function FindWorldPin(map)
         for _, layer in ipairs({ root:GetChildren() }) do
             for _, pin in ipairs({ layer:GetChildren() }) do
                 local view = pin.view
-                if view and view.canvas == canvas and view.pools and pin.pool
-                    and view.pools[WORLD_POOL] == pin.pool and CanPaint(pin) then
+                if type(view) == "table" and view.map == map and view.canvas == canvas
+                    and type(view.pools) == "table" and pin.pool and view.pools[WORLD_POOL] == pin.pool
+                    and type(pin.GetScale) == "function" and type(pin.HookScript) == "function" and CanPaint(pin) then
                     return pin
                 end
             end

@@ -29,9 +29,10 @@ local function BuildPage(parent)
     local targets = B:AddColumnSection(page, swipeColumns, "left", SUI.Text("Область действия", "Scope"))
     local function Refresh() page:Refresh() end
     local function MasksEnabled()
-        return SUI:GetFeature("cooldownMasks"), SUI.Text("Включите «Исправлять форму свайпа».", "Enable “Fix swipe shape”.")
+        return SUI:GetFeature("cooldownMasks"), SUI.Text("Включи «Форма затемнения при откате».", "Enable “Cooldown swipe shape”.")
     end
-    local masksEnabled = W:FeatureToggle(targets, "cooldownMasks", SUI.Text("Исправлять форму свайпа", "Fix swipe shape"), nil, nil, Refresh)
+    local masksEnabled = W:FeatureToggle(targets, "cooldownMasks", SUI.Text("Форма затемнения при откате", "Cooldown swipe shape"),
+        SUI.Text("Меняет форму темного сектора на иконках способностей.", "Changes the shape of the dark sector on ability icons."), nil, Refresh)
     B:AddRow(page, targets, masksEnabled)
     local actionBars = W:FeatureToggle(targets, "actionBars", SUI.Text("Панели команд EUI", "EUI action bars"), nil, MasksEnabled, Refresh)
     B:AddRow(page, targets, actionBars)
@@ -40,8 +41,12 @@ local function BuildPage(parent)
     nativeStatus.value:SetPoint("RIGHT", nativeStatus, "RIGHT", -8, 0)
     function nativeStatus:Refresh()
         local available, reason = SUI:GetFeatureAvailability("actionBars")
-        self.label:SetText(available and SUI.Text("Свайп EllesmereUI", "EllesmereUI swipe") or "")
-        self.value:SetText(reason or (M:ActionBarSwipeReady() and SUI.Text("0% • круглый слой готов", "0% · Circular swipe ready") or SUI.Text("Установите CD Swipe Opacity = 0", "Set CD Swipe Opacity to 0")))
+        local ready = available and M:ActionBarSwipeReady()
+        local state = not available and SUI.Text("Недоступно", "Unavailable")
+            or ready and SUI.Text("Готово", "Ready") or SUI.Text("Нужна настройка", "Setup required")
+        self.value:SetText(state)
+        W:Help(self, reason or (not ready and SUI.Text("В EllesmereUI установи CD Swipe Opacity = 0.",
+            "Set CD Swipe Opacity to 0 in EllesmereUI.")) or nil)
     end
     B:AddRow(page, targets, nativeStatus)
     B:AddRow(page, targets, BindAvailable(W:ActionRow(targets, SUI.Text("После изменения в EUI", "After changing EUI"), SUI.Text("Применить", "Apply"), function()
@@ -51,6 +56,96 @@ local function BuildPage(parent)
     local cooldownManager = W:FeatureToggle(targets, "cdm", "Cooldown Manager", nil, MasksEnabled, Refresh)
     B:AddRow(page, targets, cooldownManager)
     B:FinishCard(page, "swipe", targets)
+
+    local sampleCard = B:AddColumnSection(page, swipeColumns, "right", SUI.Text("Предпросмотр затемнения", "Swipe preview"),
+        SUI.Text("Показывает форму из профиля EllesmereUI и выбранные оттенки отката и зарядов.",
+            "Shows a shape from the current EllesmereUI profile and the selected cooldown and recharge shades."), true)
+    local sample = CreateFrame("Frame", nil, sampleCard)
+    sample:SetHeight(94)
+    local swipes, art = {}, {}
+    local captions = {
+        SUI.Text("Откат и GCD", "Cooldown and GCD"),
+        SUI.Text("Заряды", "Charges"),
+    }
+    for index, caption in ipairs(captions) do
+        local panel = CreateFrame("Frame", nil, sample, "BackdropTemplate")
+        panel:SetSize(54, 54)
+        panel:SetPoint("TOP", sample, "TOP", index == 1 and -64 or 64, -4)
+        T:Backdrop(panel, T.controlActive, T.lineSoft)
+        local icon = panel:CreateTexture(nil, "ARTWORK")
+        icon:SetPoint("TOPLEFT", 1, -1)
+        icon:SetPoint("BOTTOMRIGHT", -1, 1)
+        icon:SetTexture(index == 1 and 135940 or 135915)
+        local mask = panel:CreateMaskTexture()
+        mask:SetAllPoints(icon)
+        local border = panel:CreateTexture(nil, "OVERLAY")
+        border:SetAllPoints(icon)
+        art[index] = { icon = icon, mask = mask, border = border }
+        local swipe = CreateFrame("Cooldown", nil, panel, "CooldownFrameTemplate")
+        swipe:SetAllPoints(icon)
+        swipe:SetDrawSwipe(true)
+        swipe:SetDrawEdge(false)
+        swipe:SetHideCountdownNumbers(true)
+        swipes[index] = swipe
+        local label = W:Label(sample, caption, 10, T.muted)
+        label:SetPoint("TOP", panel, "BOTTOM", 0, -4)
+    end
+    local sampleStatus = W:Label(sample, "", 10, T.muted)
+    sampleStatus:SetPoint("BOTTOM", sample, "BOTTOM", 0, 0)
+    local function Stop()
+        if sample.restore then sample.restore:Cancel(); sample.restore = nil end
+    end
+    local function Pose()
+        local now = GetTime()
+        for index, swipe in ipairs(swipes) do
+            local duration = swipe.Pause and 8 or math.max(8, now * .5)
+            if swipe.Resume then swipe:Resume() end
+            swipe:SetCooldown(math.max(.001, now - duration * (index == 1 and .31 or .56)), duration)
+            if swipe.Pause then swipe:Pause() end
+        end
+    end
+    local function Play()
+        Stop()
+        local now = GetTime()
+        for _, swipe in ipairs(swipes) do if swipe.Resume then swipe:Resume() end end
+        swipes[1]:SetCooldown(now, 5)
+        swipes[2]:SetCooldown(now - 2, 7)
+        sample.restore = C_Timer.NewTimer(5.4, function()
+            sample.restore = nil
+            if sample:IsVisible() then Pose() end
+        end)
+    end
+    function sample:Refresh()
+        if not self:IsVisible() then return end
+        local normal, charge, r, g, b, usingExample, maskPath, borderPath = M:GetSwipePreview()
+        for _, item in ipairs(art) do
+            if item.maskPath ~= maskPath then
+                if item.maskPath then item.icon:RemoveMaskTexture(item.mask) end
+                if maskPath then
+                    item.mask:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+                    item.icon:AddMaskTexture(item.mask)
+                end
+                item.maskPath = maskPath
+            end
+            item.border:SetTexture(borderPath or nil)
+        end
+        swipes[1]:SetSwipeTexture(normal)
+        swipes[2]:SetSwipeTexture(charge)
+        for _, swipe in ipairs(swipes) do swipe:SetSwipeColor(r, g, b, 1) end
+        sampleStatus:SetText(usingExample and Text("Образец квадратной кнопки", "Square button sample") or "")
+    end
+    sample:SetScript("OnShow", function(self)
+        self:Refresh()
+        Pose()
+    end)
+    sample:SetScript("OnHide", function()
+        Stop()
+        for _, swipe in ipairs(swipes) do swipe:SetCooldown(0, 0) end
+    end)
+    B:AddRow(page, sampleCard, sample)
+    B:AddRow(page, sampleCard, W:ActionRow(sampleCard, Text("Откат и заряды", "Cooldown and charges"),
+        Text("Проиграть", "Play"), Play))
+    B:FinishCard(page, "swipe", sampleCard)
 
     local appearance = B:AddColumnSection(page, swipeColumns, "right", SUI.Text("Отображение", "Display"))
     local hideSpark = W:FeatureToggle(appearance, "hideSpark", SUI.Text("Скрывать искру CDM", "Hide CDM spark"), nil, MasksEnabled, Refresh)
@@ -67,6 +162,7 @@ local function BuildPage(parent)
     end, function(value)
         Profile().mainSwipeAlpha = value
         M:RefreshAll()
+        Refresh()
     end)
     B:AddRow(page, appearance, mainShade)
     local chargeShade = W:ChoiceRow(appearance, SUI.Text("Перезарядка зарядов", "Charge recharge"), shades, function()
@@ -74,6 +170,7 @@ local function BuildPage(parent)
     end, function(value)
         Profile().chargeSwipeAlpha = value
         M:RefreshAll()
+        Refresh()
     end)
     B:AddRow(page, appearance, chargeShade)
     local function ActionSwipeEnabled()
@@ -150,7 +247,7 @@ local function BuildPage(parent)
 
     local buffTab = page.tabs.buffs
     page.buffListStart, page.buffRows = buffTab.nextY, {}
-    page.buffEmpty = W:Label(buffTab.body, SUI.Text("В Cooldown Manager не выбрано ни одного бафа.", "No buffs selected in Cooldown Manager."), 10, T.muted)
+    page.buffEmpty = W:Label(buffTab.body, "", 10, T.muted)
     page.buffEmpty:SetPoint("TOPLEFT", buffTab.body, "TOPLEFT", 8, page.buffListStart - 8)
 
     local function EnsureRule(row)
@@ -173,8 +270,9 @@ local function BuildPage(parent)
     local function AcquireBuffRow(index)
         local row = page.buffRows[index]
         if row then row:Show(); return row end
-        row = W:Card(buffTab.body, "", "")
-        row.title:Hide(); row.description:Hide(); row.levelRows = {}
+        row = CreateFrame("Frame", nil, buffTab.body)
+        if W.SettingsDivider then W:SettingsDivider(row, 12) end
+        row.levelRows = {}
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(28, 28); row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", 12, -10)
         row.name = W:Label(row, "", 11, T.text)
@@ -204,8 +302,10 @@ local function BuildPage(parent)
         local function AcquireLevel(levelIndex)
             local line = row.levelRows[levelIndex]
             if line then line:Show(); return line end
-            line = CreateFrame("Frame", nil, row, "BackdropTemplate"); line:SetHeight(38); line.levelIndex = levelIndex
-            T:Backdrop(line, { T.input[1], T.input[2], T.input[3], .46 }, T.lineSoft)
+            line = CreateFrame("Frame", nil, row)
+            line:SetHeight(38)
+            line.levelIndex = levelIndex
+            if W.SettingsDivider then W:SettingsDivider(line) end
             line.label = W:Label(line, SUI.Text("Порог", "Threshold"), 9, T.muted); line.label:SetPoint("LEFT", line, "LEFT", 12, 0); line.label:SetWidth(52)
             line.minus = W:Button(line, "-", function()
                 local level = LevelFor(row, line, true); if not level then return end
@@ -311,7 +411,9 @@ local function BuildPage(parent)
     function page:RefreshBuffRows()
         local available, reason = SUI:GetFeatureAvailability("buffEffects")
         local entries = available and E:GetTrackedBuffs() or {}
-        self.buffEmpty:SetText(reason or SUI.Text("В Cooldown Manager не выбрано ни одного бафа.", "No buffs selected in Cooldown Manager."))
+        self.buffEmpty:SetText(available and Text("Нет выбранных бафов", "No buffs selected") or Text("Недоступно", "Unavailable"))
+        W:Help(buffAppearance, reason or Text("Список заполняется из отслеживаемых бафов Cooldown Manager.",
+            "The list comes from the buffs tracked by Cooldown Manager."), buffAppearance.title)
         local enabledCount, y = 0, self.buffListStart
         for index, row in ipairs(self.buffRows) do row:SetShown(index <= #entries) end
         for index, entry in ipairs(entries) do

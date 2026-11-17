@@ -3,7 +3,7 @@ local ADDON_NAME, SUI = ...
 _G.Sintezza_UI = SUI
 SUI.name = ADDON_NAME
 SUI.title = "Sintezza UI"
-SUI.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.5.153"
+SUI.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.6.1"
 local interface = GetBuildInfo and select(4, GetBuildInfo())
 SUI.isForever = type(interface) == "number" and interface >= 16000 and interface < 17000
 SUI.modules = {}
@@ -120,6 +120,14 @@ function SUI:GetAddonVersion(name)
     return C_AddOns.GetAddOnMetadata(name, "Version")
 end
 
+function SUI:GetOpenMapProjectionAPI()
+    local api = _G.OpenMapAPI
+    if type(api) == "table" and type(api.IsStitched) == "function"
+        and type(api.WorldFromMap) == "function" and type(api.MapFromWorld) == "function" then
+        return api
+    end
+end
+
 function SUI:OpenSettings(page, tab)
     if self.SettingsUI then self.SettingsUI:Show(page, tab) end
 end
@@ -176,11 +184,6 @@ SlashCmdList.SINTEZZA_UI = function(input)
     if input == "dida" then
         local module = SUI:GetModule("fontCompatibility")
         if module then module:PrintDidaShapeStatus() end
-        return
-    end
-    if input == "tipfont" then
-        local module = SUI:GetModule("fontCompatibility")
-        if module and module.PrintTooltipFontStatus then module:PrintTooltipFontStatus() end
         return
     end
     if input == "report" then

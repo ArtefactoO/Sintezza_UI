@@ -1,5 +1,27 @@
-local _, SUI = ...
+local addonName, SUI = ...
 local M = SUI:RegisterModule("transportMap", { bars = {}, active = {}, dockAnchors = {}, seenDocks = {}, minimapBars = {} })
+local perf = _G.Sintezza_PerfAPI
+if type(perf) ~= "table" or perf.version ~= 1 then perf = nil end
+local visitPoint, clusterPoint, worldRefreshPoint, minimapRefreshPoint
+if perf then
+    local module = perf:RegisterModule(addonName, "transport", {
+        title = "Transport timers", titleRu = "Таймеры транспорта",
+    })
+    if module then
+        visitPoint = perf:RegisterPoint(module, "next_visit", {
+            title = "Calculate dock departure", titleRu = "Расчет отправления", memory = true,
+        })
+        clusterPoint = perf:RegisterPoint(module, "cluster_visit", {
+            title = "Choose cluster departure", titleRu = "Выбор отправления группы", memory = true,
+        })
+        worldRefreshPoint = perf:RegisterPoint(module, "world_refresh", {
+            kind = "counter", title = "World map refreshes", titleRu = "Обновления карты мира",
+        })
+        minimapRefreshPoint = perf:RegisterPoint(module, "minimap_refresh", {
+            kind = "counter", title = "Minimap refreshes", titleRu = "Обновления миникарты",
+        })
+    end
+end
 local CATALOG = SUI.TransportDocks
 local LEGACY_MAX_AGE = 6 * 3600
 local BAR_WIDTH, BAR_HEIGHT, BAR_GAP = 68, 18, 1
@@ -74,11 +96,22 @@ local function NextVisit(dockID, schedule, filterKinds)
     end
     return best
 end
+if visitPoint then
+    local original = NextVisit
+    NextVisit = function(...) return perf:Call(visitPoint, original, ...) end
+end
 
 local function Source()
     local spf = _G.ShortestPathForever
     local db = _G.ShortestPathForeverDB
     if type(spf) == "table" and spf.API and type(db) == "table" then return db end
+end
+
+local PREVIEW_DOCK, PREVIEW_MAP = 1, 1413 -- Ratchet, The Barrens
+
+function M:GetPreviewVisit()
+    local schedule = ReadSchedule(Source())
+    return schedule and NextVisit(PREVIEW_DOCK, schedule, true)
 end
 
 local function ClusterVisit(docks, schedule, filterKinds)
@@ -89,12 +122,18 @@ local function ClusterVisit(docks, schedule, filterKinds)
     end
     return best
 end
+if clusterPoint then
+    local original = ClusterVisit
+    ClusterVisit = function(...) return perf:Call(clusterPoint, original, ...) end
+end
 
 local function OpenMapStitch()
     local api, open = _G.OpenMapAPI, _G.OpenMap
-    if not (api and api.major == 1 and api.IsStitched and api.IsStitched() and open) then return end
-    local stitch = open.MapStitch
-    if stitch and stitch.GetPinSet and stitch.FromYards then return stitch, api end
+    local stitch = type(open) == "table" and open.MapStitch
+    if not (type(api) == "table" and type(api.IsStitched) == "function" and type(stitch) == "table"
+        and type(stitch.GetPinSet) == "function" and type(stitch.FromYards) == "function") then return end
+    local ok, stitched = pcall(api.IsStitched)
+    if ok and not (issecretvalue and issecretvalue(stitched)) and stitched == true then return stitch, api end
 end
 
 local function DockKindMatches(dock, kind)
@@ -200,20 +239,16 @@ local function CollectShortestDocks(map, pool, api, width, height, scale, seen)
     end
 end
 
-function M:Bar(key, pin, mini)
-    local bars = mini and self.minimapBars or self.bars
-    local bar = bars[key]
-    if bar then return bar end
+local function CreateTimerBar(parent, mini, preview)
     local width, height = BAR_WIDTH, BAR_HEIGHT
     if mini then width, height = MINI_WIDTH, MINI_HEIGHT end
-    bar = CreateFrame("Frame", nil, pin or self.driver, "BackdropTemplate")
+    local bar = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     -- Follow the pin's position and visibility while keeping its zoom out of the bar's size.
-    if not mini and bar.SetIgnoreParentScale then
+    if not preview and not mini and bar.SetIgnoreParentScale then
         bar:SetIgnoreParentScale(true)
         bar.fixedPinScale = true
     end
     bar:SetSize(width, height)
-    if pin then bar:SetPoint("TOP", pin, "BOTTOM", 0, -BAR_GAP) end
     bar:EnableMouse(false)
     SUI.Theme:Backdrop(bar, PARCHMENT, BORDER)
     local grain = bar:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -235,11 +270,28 @@ function M:Bar(key, pin, mini)
     bar.fill = bar:CreateTexture(nil, "OVERLAY")
     bar.fill:SetPoint("BOTTOMLEFT", bar.track, "BOTTOMLEFT")
     bar.fill:SetHeight(TRACK_HEIGHT)
+    return bar
+end
+
+function M:Bar(key, pin, mini)
+    local bars = mini and self.minimapBars or self.bars
+    local bar = bars[key]
+    if bar then return bar end
+    bar = CreateTimerBar(pin or self.driver, mini)
+    if pin then bar:SetPoint("TOP", pin, "BOTTOM", 0, -BAR_GAP) end
     bars[key] = bar
     return bar
 end
 
-local function PaintVisit(bar, item, label)
+local function PaintVisit(bar, item, mini)
+    local label
+    if mini then
+        label = Seconds(item.docked and item.departIn or item.arriveIn)
+    elseif item.docked then
+        label = DEPART .. Seconds(item.departIn)
+    else
+        label = Seconds(item.arriveIn) .. " / " .. Seconds(item.departIn)
+    end
     bar.label:SetText((item.age > 3600 and "~" or "") .. label)
     bar.fill:SetWidth(math.max(1, bar.track:GetWidth() * item.fraction))
     bar.fill:SetColorTexture(unpack(item.docked and DOCKED or TRAVEL))
@@ -304,7 +356,65 @@ local function DockPosition(dock, api, mapID)
     if x >= 0 and x <= 1 and y >= 0 and y <= 1 then return x, y end
 end
 
+local function PaintDockPreviewMap(frame, mini)
+    if not (C_Map and C_Map.GetMapArtLayers and C_Map.GetMapArtLayerTextures) then return .5, .44 end
+    local x, y = DockPosition(CATALOG[PREVIEW_DOCK], nil, PREVIEW_MAP)
+    local layers = x and C_Map.GetMapArtLayers(PREVIEW_MAP)
+    local layer = layers and layers[1]
+    local files = layer and C_Map.GetMapArtLayerTextures(PREVIEW_MAP, 1)
+    if not files or not files[1] then return .5, .44 end
+
+    local tileWidth, tileHeight = layer.tileWidth, layer.tileHeight
+    local width, height = layer.layerWidth, layer.layerHeight
+    local columns = math.ceil(width / tileWidth)
+    local aspect = frame:GetHeight() / frame:GetWidth()
+    local viewWidth = math.min(width * (mini and .14 or .30), height / aspect)
+    local viewHeight = viewWidth * aspect
+    local left = math.max(0, math.min(width - viewWidth, x * width - viewWidth * .5))
+    local top = math.max(0, math.min(height - viewHeight, y * height - viewHeight * .44))
+    local right, bottom = left + viewWidth, top + viewHeight
+    local scale = frame:GetWidth() / viewWidth
+
+    for row = math.floor(top / tileHeight), math.ceil(bottom / tileHeight) - 1 do
+        for column = math.floor(left / tileWidth), math.ceil(right / tileWidth) - 1 do
+            local file = files[row * columns + column + 1]
+            if file and file ~= 0 then
+                local tx, ty = column * tileWidth, row * tileHeight
+                local l, t = math.max(left, tx), math.max(top, ty)
+                local r, b = math.min(right, tx + tileWidth), math.min(bottom, ty + tileHeight)
+                local tile = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
+                tile:SetTexture(file)
+                tile:SetPoint("TOPLEFT", frame, "TOPLEFT", (l - left) * scale, -(t - top) * scale)
+                tile:SetSize((r - l) * scale, (b - t) * scale)
+                tile:SetTexCoord((l - tx) / tileWidth, (r - tx) / tileWidth, (t - ty) / tileHeight, (b - ty) / tileHeight)
+            end
+        end
+    end
+    return (x * width - left) / viewWidth, (y * height - top) / viewHeight
+end
+
+function M:CreateTransportPreview(parent, mini)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetSize(147, 152)
+    local background = frame:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(.14, .22, .24, 1)
+    local x, y = PaintDockPreviewMap(frame, mini)
+    local pin = frame:CreateTexture(nil, "ARTWORK")
+    pin:SetAtlas("flightmasterferry")
+    local size = mini and 16 or 20
+    pin:SetSize(size, size)
+    pin:SetPoint("CENTER", frame, "TOPLEFT", x * frame:GetWidth(), -y * frame:GetHeight())
+    local timer = CreateTimerBar(frame, mini, true)
+    timer:SetPoint("TOP", pin, "BOTTOM", 0, -BAR_GAP)
+    function frame:Refresh(visit, enabled)
+        if enabled and visit then PaintVisit(timer, visit, mini) else timer:Hide() end
+    end
+    return frame
+end
+
 function M:Refresh()
+    if worldRefreshPoint then perf:Count(worldRefreshPoint) end
     local map = self.map
     self:WatchOpenMap(_G.OpenMapAPI)
     local schedule = ReadSchedule(Source())
@@ -445,9 +555,7 @@ function M:Refresh()
                 else
                     self:PlaceDockBar(bar, item, canvas, api, mapScale, scale)
                 end
-                local label = item.docked and (DEPART .. Seconds(item.departIn))
-                    or (Seconds(item.arriveIn) .. " / " .. Seconds(item.departIn))
-                PaintVisit(bar, item, label)
+                PaintVisit(bar, item, false)
                 visible[key], claimed[item.id] = true, true
                 placed[#placed + 1] = item
             end
@@ -471,6 +579,7 @@ local function TimerFits(x, y, halfWidth, halfHeight, square, occupied)
 end
 
 function M:RefreshMinimap()
+    if minimapRefreshPoint then perf:Count(minimapRefreshPoint) end
     local host, db = self.minimapHost, Source()
     if not (self.minimapEnabled and host and host:IsVisible() and db) or InCombatLockdown() then
         for _, bar in pairs(self.minimapBars) do bar:Hide() end
@@ -512,7 +621,7 @@ function M:RefreshMinimap()
                 bar:SetPoint(below and "TOP" or "BOTTOM", pin, below and "BOTTOM" or "TOP", 0, below and -2 or 2)
                 bar.below = below
             end
-            PaintVisit(bar, item, Seconds(item.docked and item.departIn or item.arriveIn))
+            PaintVisit(bar, item, true)
             shown[pin] = true
             occupied[#occupied + 1] = { x = x, y = y + (below and -offset or offset), width = MINI_WIDTH, height = MINI_HEIGHT }
         end
@@ -557,7 +666,8 @@ function M:WatchOpenMap(api)
         for _, event in ipairs(OPEN_EVENTS) do self.watchedAPI.UnregisterCallback(self, event) end
         self.watchedAPI = nil
     end
-    if api and api.RegisterCallback and api.UnregisterCallback then
+    if type(api) == "table" and type(api.RegisterCallback) == "function"
+        and type(api.UnregisterCallback) == "function" then
         self.watchedAPI = api
         local function RequestLayout() self.driver.dirty = true end
         for _, event in ipairs(OPEN_EVENTS) do api.RegisterCallback(self, event, RequestLayout) end

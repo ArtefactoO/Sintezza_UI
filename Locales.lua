@@ -12,10 +12,23 @@ local groups = {
     ["ГРУППА И КАРТА"] = "GROUP & MAP",
     ["ОБЩЕЕ"] = "GENERAL",
     ["ЭЛЕМЕНТЫ ИНТЕРФЕЙСА"] = "INTERFACE ELEMENTS",
+    ["СИСТЕМА"] = "SYSTEM",
 }
 
 function SUI.NavGroupLabel(group)
     return english and groups[group] or group
+end
+
+local cyrillic = {}
+do
+    local lower = "абвгде\209\145жзийклмнопрстуфхцчшщъыьэюя"
+    local upper = "АБВГДЕ\208\129ЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+    for index = 1, #upper, 2 do cyrillic[upper:sub(index, index + 1)] = lower:sub(index, index + 1) end
+end
+
+function SUI.SettingsSearchKey(value)
+    local key = value:gsub("[A-Z]", string.lower):gsub("[\208\209][\128-\191]", cyrillic)
+    return (key:gsub("\209\145", "е"))
 end
 
 if GetLocale() == "ruRU" then

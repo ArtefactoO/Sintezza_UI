@@ -3,6 +3,7 @@ manual-changelog:
   filename: CHANGELOG.md
   markup-type: markdown
 ignore:
+  - Docs/CurseForge
   - AGENTS.md
   - "Media/CombatFonts/Custom/*.ttf"
   - "Media/CombatFonts/Custom/*.otf"

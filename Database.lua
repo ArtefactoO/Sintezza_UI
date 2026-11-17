@@ -1,10 +1,12 @@
 local _, SUI = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_SCHEMA = 66
+local CURRENT_SCHEMA = 72
 SUI.AuraRuleDefaults = { colorTarget = "HEALTH", borderThickness = 1 }
 SUI.NameplateThreatBorderDefault = 2
 local function color(r, g, b, a) return { r, g, b, a } end
+
+SUI.RouteDotDefaults = { size = 6.5, color = color(1, 230 / 255, 167 / 255, 1) }
 
 local defaults = {
     modules = {
@@ -13,13 +15,11 @@ local defaults = {
             enabled = true,
             intensity = .08,
         },
-        lueurCompatibility = { enabled = SUI.isForever },
         partyMap = { enabled = SUI.isForever, markers = true },
-        mapDisplay = { stackTabs = false },
         transportMap = { enabled = SUI.isForever, minimap = SUI.isForever },
         chatWhisperErrors = { enabled = SUI.isForever },
         mapWaypointControls = { enabled = SUI.isForever },
-        shortestPathMinimap = { enabled = false },
+        shortestPathMinimap = { enabled = false, dotSize = SUI.RouteDotDefaults.size, dotColor = SUI.RouteDotDefaults.color },
         combatAlert = {
             enabled = true,
             showEnter = true,
@@ -185,14 +185,9 @@ local defaults = {
         },
         nameplates = {
             enabled = true,
-            learnDebuffs = true,
             buffIconsPerRow = 4,
+            blizzardBuffIconsPerRow = 0,
             buffRowSpacing = 2,
-            textStyles = {
-                name = "outlineShadow", level = "outlineShadow", health = "native",
-                target = "native", quest = "native", castName = "native",
-                castTarget = "native", castTime = "native",
-            },
             smoothHealth = false,
             openWorldThreat = true,
             nearThreat = true,
@@ -213,12 +208,6 @@ local defaults = {
             },
             auraRules = {
                 scopes = {},
-                pandemic = {
-                    enabled = false,
-                    pulse = true,
-                    pulseSpeed = 0.35,
-                    color = { r = 1, g = 1, b = 1, a = 0.45 },
-                },
             },
         },
         cooldownMasks = {
@@ -262,7 +251,6 @@ if SUI.isForever then
     modules.gameBar.miniBar.enabled = false
     modules.fontCompatibility.absorbInset = false
     modules.fontCompatibility.borderMedia = false
-    modules.nameplates.learnDebuffs = false
     modules.raidTools.raidCheck.columns.flask = false
     modules.raidTools.raidCheck.columns.rune = false
 end
@@ -320,6 +308,7 @@ local function CleanObsoleteProfileFields(profile)
     local auraRoot = nameplates.auraRules
     if type(auraRoot) ~= "table" then return end
     auraRoot.enabled, auraRoot.rules, auraRoot.legacyMigrated = nil, nil, nil
+    auraRoot.pandemic = nil
     for _, scope in pairs(auraRoot.scopes or {}) do
         for _, rule in ipairs(scope.rules or {}) do
             rule.action, rule.border, rule.priority = nil, nil, nil
@@ -799,14 +788,6 @@ local function RunMigrations(db)
             end
         end
     end
-    if previous < 36 then
-        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
-            local modules = type(profile) == "table" and profile.modules
-            if type(modules) == "table" and modules.lueurCompatibility == nil then
-                modules.lueurCompatibility = DeepCopy(defaults.modules.lueurCompatibility)
-            end
-        end
-    end
     if previous < 37 then
         for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
             local modules = type(profile) == "table" and profile.modules
@@ -905,21 +886,6 @@ local function RunMigrations(db)
             local plates = type(modules) == "table" and modules.nameplates
             if type(plates) == "table" and plates.buffIconsPerRow == nil then
                 plates.buffIconsPerRow = defaults.modules.nameplates.buffIconsPerRow
-            end
-        end
-    end
-    if previous < 48 then
-        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
-            local modules = type(profile) == "table" and profile.modules
-            local plates = type(modules) == "table" and modules.nameplates
-            if type(plates) == "table" then
-                local styles = type(plates.textStyles) == "table" and plates.textStyles or {}
-                local legacy = plates.nameStyle
-                if legacy == "native" or legacy == "outline" or legacy == "shadow" or legacy == "outlineShadow" then
-                    if styles.name == nil then styles.name = legacy end
-                    if styles.level == nil then styles.level = legacy end
-                end
-                plates.textStyles, plates.nameStyle = styles, nil
             end
         end
     end
@@ -1048,21 +1014,67 @@ local function RunMigrations(db)
             end
         end
     end
-    if previous < 65 then
+    if previous < 67 then
+        local routeDefaults = defaults.modules.shortestPathMinimap
         for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
             local modules = type(profile) == "table" and profile.modules
-            if type(modules) == "table" and modules.mapDisplay == nil then
-                modules.mapDisplay = DeepCopy(defaults.modules.mapDisplay)
+            if type(modules) == "table" then
+                modules.mapDisplay = nil
+                local route = modules.shortestPathMinimap
+                if type(route) == "table" then
+                    if route.dotSize == nil then route.dotSize = routeDefaults.dotSize end
+                    if route.dotColor == nil then route.dotColor = DeepCopy(routeDefaults.dotColor) end
+                end
             end
         end
     end
-    if previous < 66 then
+    if previous < 68 then
+        local retired = { SEAL = true, EMBERS = true, FISSURE = true }
+        local alertDefaults = defaults.modules.combatAlert
         for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
             local modules = type(profile) == "table" and profile.modules
-            local display = type(modules) == "table" and modules.mapDisplay
-            if type(display) == "table" then
-                display.questPriority, display.dedupeQuests = nil, nil
+            local alerts = type(modules) == "table" and modules.combatAlert
+            if type(alerts) == "table" then
+                if retired[alerts.visualStyle] then alerts.visualStyle = alertDefaults.visualStyle end
+                if retired[alerts.stealthVisualStyle] then alerts.stealthVisualStyle = alertDefaults.stealthVisualStyle end
+                for _, key in ipairs({ "healthAlert", "aggroAlert" }) do
+                    local alert = alerts[key]
+                    if type(alert) == "table" and retired[alert.style] then alert.style = alertDefaults[key].style end
+                end
             end
+        end
+    end
+    if previous < 69 then
+        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
+            local modules = type(profile) == "table" and profile.modules
+            local plates = type(modules) == "table" and modules.nameplates
+            if type(plates) == "table" then
+                plates.textStyles, plates.nameStyle = nil, nil
+            end
+        end
+    end
+    if previous < 70 then
+        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
+            local modules = type(profile) == "table" and profile.modules
+            if type(modules) == "table" then modules.lueurCompatibility = nil end
+        end
+        db.lueurCompatibilityRestore = nil
+    end
+    if previous < 71 then
+        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
+            local modules = type(profile) == "table" and profile.modules
+            local plates = type(modules) == "table" and modules.nameplates
+            if type(plates) == "table" and plates.blizzardBuffIconsPerRow == nil then
+                plates.blizzardBuffIconsPerRow = defaults.modules.nameplates.blizzardBuffIconsPerRow
+            end
+        end
+    end
+    if previous < 72 then
+        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
+            local modules = type(profile) == "table" and profile.modules
+            local plates = type(modules) == "table" and modules.nameplates
+            local auras = type(plates) == "table" and plates.auraRules
+            if type(auras) == "table" then auras.pandemic = nil end
         end
     end
     db.schemaVersion = math.max(previous, CURRENT_SCHEMA)

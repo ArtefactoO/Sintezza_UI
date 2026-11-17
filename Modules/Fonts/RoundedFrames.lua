@@ -7,6 +7,97 @@ local hookOwners = setmetatable({}, { __mode = "k" })
 local seamLayers = setmetatable({}, { __mode = "k" })
 local experienceRounding = setmetatable({}, { __mode = "k" })
 
+local function Public(value)
+    return (not issecretvalue or not issecretvalue(value)) and (not canaccessvalue or canaccessvalue(value))
+end
+
+local function PublicNumber(value)
+    return Public(value) and type(value) == "number" and value == value
+end
+
+local function Accessible(frame)
+    if not Public(frame) or (type(frame) ~= "table" and type(frame) ~= "userdata") then return false end
+    local ok, allowed = pcall(function()
+        local forbidden = frame.IsForbidden and frame:IsForbidden()
+        if not Public(forbidden) or forbidden then return false end
+        if not frame.CanBeAccessedInContext then return true end
+        local permitted = frame:CanBeAccessedInContext()
+        return Public(permitted) and permitted == true
+    end)
+    return ok and allowed
+end
+
+local function ColorChannel(color, name, index, fallback)
+    local value = color[name]
+    if not Public(value) then return end
+    if value == nil then value = color[index] end
+    if value == nil then value = fallback end
+    if PublicNumber(value) then return value end
+end
+
+local function BorderBlend(frame, mode)
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "Texture" then region:SetBlendMode(mode) end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do BorderBlend(child, mode) end
+end
+
+function M:ApplyDandersSolidBorder(layer, native, spec, thinPreset)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    if not Accessible(layer) or not Accessible(native) or not Public(spec) or type(spec) ~= "table"
+        or (canaccesstable and not canaccesstable(spec)) then return false end
+    local eui, danders = _G.EllesmereUI, self:GetDanders()
+    local provider = danders and danders.Border
+    if not (eui and eui.PP and eui.PP.GetBorders and eui.ApplyBorderStyle) then return false end
+    local size, inset = spec.size, spec.inset
+    local offsetX, offsetY = spec.offsetX, spec.offsetY
+    if not Public(size) or not Public(inset) or not Public(offsetX) or not Public(offsetY)
+        or not Public(spec.pixelPerfect) or not Public(spec.renderScale) or not Public(spec.enabled) then return false end
+    size, inset, offsetX, offsetY = size or 1, inset or 0, offsetX or 0, offsetY or 0
+    if not PublicNumber(size) or not PublicNumber(inset) or not PublicNumber(offsetX) or not PublicNumber(offsetY) then return false end
+    local color = spec.color
+    if not Public(color) or type(color) ~= "table" or (canaccesstable and not canaccesstable(color)) then return false end
+    local r, g, b, a = ColorChannel(color, "r", 1, 0), ColorChannel(color, "g", 2, 0),
+        ColorChannel(color, "b", 3, 0), ColorChannel(color, "a", 4, 1)
+    if r == nil or g == nil or b == nil or a == nil then return false end
+    local blend = spec.blendMode
+    if not Public(blend) then return false end
+    blend = blend or "BLEND"
+    if type(blend) ~= "string" then return false end
+    if spec.pixelPerfect and not thinPreset then
+        local scale = tonumber(spec.renderScale) or 1
+        if not provider or not provider.SnapThickness or not danders.PixelPerfect then return false end
+        local readable, snapped = pcall(provider.SnapThickness, provider, size, true, scale)
+        if not readable or not PublicNumber(snapped) then return false end
+        size = snapped
+        if inset ~= 0 then
+            local factor = scale > 0 and scale or 1
+            readable, snapped = pcall(danders.PixelPerfect, danders, inset * factor)
+            if not readable or not PublicNumber(snapped) then return false end
+            inset = snapped / factor
+        end
+    end
+    local pixel = eui.PP.perfect
+    local readable, scale = pcall(layer.GetEffectiveScale, layer)
+    if not readable then return false end
+    if not PublicNumber(pixel) or pixel <= 0 or not PublicNumber(scale) or scale <= 0 then return false end
+    local pixels = size * scale / pixel
+    if thinPreset then pixels, inset, r, g, b, a, blend = 1, 0, 0, 0, 0, 1, "BLEND" end
+    layer:ClearAllPoints()
+    -- Danders has already placed this host with offsetX/Y. Apply only the
+    -- inner/outer inset so offsets are inherited once.
+    layer:SetPoint("TOPLEFT", native, "TOPLEFT", inset, -inset)
+    layer:SetPoint("BOTTOMRIGHT", native, "BOTTOMRIGHT", -inset, inset)
+    eui.ApplyBorderStyle(layer, spec.enabled ~= false and math.max(0, pixels) or 0, r, g, b, a, "solid")
+    if spec.enabled ~= false and pixels > 0 and not eui.PP.GetBorders(layer) then return false end
+    return true, blend, inset == 0 and offsetX == 0 and offsetY == 0
+end
+
+function M:ApplyDandersBorderBlend(layer, blend)
+    if not Accessible(layer) or (InCombatLockdown and InCombatLockdown()) then return end
+    BorderBlend(layer, blend)
+end
+
 local function IsOnePixelBorder(eui, border, allowTint)
     local pp = eui.PP
     local edges = border and border:IsShown() and pp.GetBorders(border)
@@ -58,6 +149,7 @@ function M:SyncRoundedSeam(owner, radius, opts)
     end
     local eui = _G.EllesmereUI
     if not (type(radius) == "number" and radius > 0 and supported and opts.style == "solid"
+        and (not thin or (thin.blendMode == "BLEND" and thin.seamAligned))
         and IsOnePixelBorder(eui, border, plateBorder)) then
         if state and state.layer:IsShown() then
             eui.RoundCorners(state.layer, 0)
@@ -118,32 +210,63 @@ function M:SyncNameplateSeamCorners(owner, corners)
 end
 
 local function RestoreDandersArtwork(state)
-    for region, shown in pairs(state.artwork) do
-        region:SetShown(shown)
+    for region, mask in pairs(state.artwork) do
+        if Accessible(region) then pcall(region.RemoveMaskTexture, region, mask) end
         state.artwork[region] = nil
     end
 end
 
-local function SuppressDandersArtwork(state, native, repainted)
-    local function Hide(region)
-        if not region or (region.IsForbidden and region:IsForbidden())
-            or (region.IsProtected and region:IsProtected() and InCombatLockdown and InCombatLockdown()) then return end
-        if repainted or state.artwork[region] == nil then state.artwork[region] = region:IsShown() end
-        if region:IsShown() then region:Hide() end
+local function SuppressDandersArtwork(state, native)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    local mask = state.hideMask
+    if state.maskParent ~= native then
+        if type(native.CreateMaskTexture) ~= "function" then return false end
+        local ok, created = pcall(native.CreateMaskTexture, native)
+        if not ok or not Accessible(created) then return false end
+        mask = created
+        local path = "Interface\\AddOns\\EllesmereUI\\media\\rounded\\hide.tga"
+        if mask:SetTexture(path, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") == false then return false end
+        mask:SetAllPoints(native)
+        state.hideMask, state.maskParent = mask, native
     end
-    Hide(native.top)
-    Hide(native.bottom)
-    Hide(native.left)
-    Hide(native.right)
-    Hide(native.bd)
-    for _, piece in pairs(native.texPieces or {}) do Hide(piece) end
+    local function MaskRegion(region)
+        if not Public(region) then return false end
+        if region == nil then return true end
+        if not Accessible(region) then return false end
+        local kind = region:GetObjectType()
+        if kind == "Texture" then
+            if state.artwork[region] == mask then return true end
+            local ok, attached = pcall(region.AddMaskTexture, region, mask)
+            if not ok or attached == false then return false end
+            state.artwork[region] = mask
+            return true
+        end
+        if kind ~= "Frame" then return true end
+        for _, texture in ipairs({ region:GetRegions() }) do
+            if not MaskRegion(texture) then return false end
+        end
+        for _, child in ipairs({ region:GetChildren() }) do
+            if not MaskRegion(child) then return false end
+        end
+        return true
+    end
+    -- The mask is installed outside combat. Native Show/SetColor calls can
+    -- then update the border without reviving its square artwork.
+    for _, key in ipairs({ "top", "bottom", "left", "right", "bd" }) do
+        if not MaskRegion(native[key]) then return false end
+    end
+    local pieces = native.texPieces
+    if not Public(pieces) or (pieces and canaccesstable and not canaccesstable(pieces)) then return false end
+    for _, piece in pairs(pieces or {}) do
+        if not MaskRegion(piece) then return false end
+    end
+    return true
 end
 
 local function ReleaseThinDandersBorder(frame, state, repainted)
     if not state or not state.round then return end
     state.layer:Hide()
-    if repainted and state.native == frame.border then wipe(state.artwork)
-    else RestoreDandersArtwork(state) end
+    RestoreDandersArtwork(state)
     pcall(state.round, frame, 0)
     if state.power then pcall(state.round, state.power, 0) end
     state.round, state.native, state.power, state.radius = nil, nil, nil, nil
@@ -174,7 +297,6 @@ local function ApplyThinDandersBorder(frame, state, db, thinPreset, repainted, k
     local eui = _G.EllesmereUI
     if not state then
         local layer = CreateFrame("Frame", nil, native)
-        layer:SetAllPoints(frame)
         layer:EnableMouse(false)
         state = { layer = layer, artwork = {}, options = { border = layer, style = "solid", roots = {}, textures = {} } }
         dandersThinBorders[frame] = state
@@ -187,24 +309,25 @@ local function ApplyThinDandersBorder(frame, state, db, thinPreset, repainted, k
         if layer:GetParent() ~= native then layer:SetParent(native) end
         state.native = native
     end
-    layer:SetFrameLevel(native:GetFrameLevel())
-    local showBorder = db.frameShowBorder ~= false and (thinPreset or (tonumber(db.frameBorderSize) or 1) > 0)
-    local size, r, g, b, a = 1, 0, 0, 0, 1
-    local danders = M:GetDanders()
-    local provider = danders and danders.Border
-    if not thinPreset and showBorder and provider and provider.BuildSpec then
-        local spec = provider:BuildSpec(db, "frame", { unit = frame.unit, frame = frame })
-        local color = spec.color
-        if color then r, g, b, a = color.r or color[1] or 0, color.g or color[2] or 0,
-            color.b or color[3] or 0, color.a or color[4] or 1 end
-        size = spec.size
-    end
-    eui.ApplyBorderStyle(layer, showBorder and size or 0, r, g, b, a, "solid")
-    if showBorder and not eui.PP.GetBorders(layer) then
-        ReleaseThinDandersBorder(frame, state)
-        layer:Hide()
+    local readable, level = pcall(native.GetFrameLevel, native)
+    if not readable or not PublicNumber(level) then
+        ReleaseThinDandersBorder(frame, state, repainted)
         return
     end
+    layer:SetFrameLevel(level)
+    local danders = M:GetDanders()
+    local provider = danders and danders.Border
+    if not provider or not provider.BuildSpec then
+        ReleaseThinDandersBorder(frame, state, repainted)
+        return
+    end
+    local unit = frame.unit
+    if not Public(unit) then ReleaseThinDandersBorder(frame, state, repainted); return end
+    local spec = provider:BuildSpec(db, "frame", { unit = unit, frame = frame })
+    local ok, blend, aligned = M:ApplyDandersSolidBorder(layer, native, spec, thinPreset)
+    if not ok then ReleaseThinDandersBorder(frame, state, repainted); return end
+    state.blendMode, state.seamAligned = blend, aligned
+    opts.rect = layer
     -- Full-width power bars on the frame share its silhouette. Bars moved
     -- away from the frame still get their own small rounded ends.
     local power = frame.dfPowerBar
@@ -236,20 +359,27 @@ local function ApplyThinDandersBorder(frame, state, db, thinPreset, repainted, k
         pcall(state.round, detachedPower, radius > 0 and math.min(3, radius) or 0, { roots = { detachedPower }, style = "solid" })
     end
     state.power = detachedPower
-    SuppressDandersArtwork(state, native, repainted)
+    M:ApplyDandersBorderBlend(layer, blend)
+    if not SuppressDandersArtwork(state, native) then
+        ReleaseThinDandersBorder(frame, state)
+        return
+    end
     SUI:SafeModuleCall(M, "Danders dispel shape", M.SyncDandersDispelShape, frame, radius)
     M:SyncDandersAggroGlow(frame)
 end
 
 function M:ApplyDandersRoundedFrame(frame, db, repainted)
     if not SUI:IntegrationEnabled("danders") then return end
-    if not frame then return end
+    if InCombatLockdown and InCombatLockdown() then self.pendingRoundedFrames = true; return end
+    if not Accessible(frame) then self.pendingRoundedFrames = true; return end
+    local native = frame.border
+    if not Public(native) or (native and not Accessible(native)) then self.pendingRoundedFrames = true; return end
     db = frame.dfPinnedBorderDB or db
     if not db then
         local danders = self:GetDanders()
         db = danders and danders.GetFrameDB and danders:GetFrameDB(frame)
     end
-    local preset = type(db) == "table" and db.frameShowBorder ~= false
+    local preset = type(db) == "table" and db.frameShowBorder ~= false and not db.frameBorderGradientEnabled
         and db.frameBorderStyle == "TEXTURE" and db.frameBorderTexture
     local danders = self:GetDanders()
     local raid = frame.isRaidFrame or (danders and danders.IsRaidFrame and danders:IsRaidFrame(frame))
@@ -261,13 +391,6 @@ function M:ApplyDandersRoundedFrame(frame, db, repainted)
     local thin = (thinPreset or forceSolid) and self:CanDrawThinRoundedBorder()
     local thinState = dandersThinBorders[frame]
     if not (thin or (thinState and thinState.round)) then return end
-    if InCombatLockdown and InCombatLockdown() then
-        if repainted and thin and thinState and thinState.native == frame.border then
-            SuppressDandersArtwork(thinState, frame.border, true)
-        end
-        self.pendingRoundedFrames = true
-        return
-    end
     if thin then
         ApplyThinDandersBorder(frame, thinState, db, thinPreset, repainted, key)
         return

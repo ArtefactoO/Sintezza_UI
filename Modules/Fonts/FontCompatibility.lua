@@ -410,6 +410,7 @@ function M:GetBorderPreset(mode)
     local db = self:GetBorderDB(mode)
     if not db then return nil end
     local style = db.frameBorderStyle or "SOLID"
+    if db.frameBorderGradientEnabled then return "GRADIENT" end
     if style == "TEXTURE" then return db.frameBorderTexture or "SOLID" end
     return style
 end
@@ -491,6 +492,7 @@ function M:SetBorderPreset(mode, preset)
         db.frameBorderInset = previous and previous.inset or 0
         self.borderGeometryBeforeEUI[mode] = nil
     end
+    db.frameBorderGradientEnabled = preset == "GRADIENT"
     if preset == "SOLID" or preset == "GRADIENT" then
         db.frameBorderStyle = preset
     else
@@ -547,6 +549,7 @@ function M:ResetBorder(mode)
     if not db then return false end
     db.frameShowBorder = true
     db.frameBorderStyle = "SOLID"
+    db.frameBorderGradientEnabled = false
     db.frameBorderTexture = "SOLID"
     db.frameBorderSize = 1
     db.frameBorderInset = 0
@@ -567,12 +570,40 @@ function M:BorderStatus(mode)
     return SUI.Text("Изменения сохраняются в активном профиле DandersFrames", "Saved in the active DandersFrames profile")
 end
 
+local function FontPathKey(path)
+    return type(path) == "string" and path:lower():gsub("\\", "/") or nil
+end
+
+function M:FontCoverageIndex()
+    local result = {}
+    local combatFont = SUI:GetModule("combatFont")
+    for _, font in ipairs(combatFont and combatFont:ListFonts() or {}) do
+        local key = FontPathKey(font.path)
+        if key and type(font.russian) == "number" then result[key] = font end
+    end
+    return result
+end
+
+function M:CanRegisterFont(coverage)
+    if not coverage or type(coverage.russian) ~= "number" then
+        return false, SUI.Text("Регистрация доступна после подтверждения всех 66 русских букв.",
+            "Registration requires verified coverage of all 66 Russian letters.")
+    end
+    if coverage.russian ~= 66 then
+        return false, SUI.Text("Русские буквы: %d/66. Регистрация заблокирована.",
+            "Russian letters: %d/66. Registration is blocked."):format(coverage.russian)
+    end
+    return true
+end
+
 function M:AvailableFonts()
     local lsm = self:GetLSM()
+    local coverage = self:FontCoverageIndex()
     local result = {}
     if lsm and lsm.List then
         for _, name in ipairs(lsm:List("font")) do
-            result[#result + 1] = { name = name, path = lsm:Fetch("font", name, true) }
+            local path = lsm:Fetch("font", name, true)
+            result[#result + 1] = { name = name, path = path, coverage = coverage[FontPathKey(path)] }
         end
     end
     table.sort(result, function(a, b) return a.name:lower() < b.name:lower() end)
@@ -585,14 +616,24 @@ function M:RegisterSelected()
     local lsm = self:GetLSM()
     if not profile or not profile.enabled or not danders
         or type(danders.RegisterFontAlphabetSupport) ~= "function" or not lsm then return end
+    local coverage = self:FontCoverageIndex()
+    self.registeredFontPaths = self.registeredFontPaths or {}
     local registered
     for name, selected in pairs(profile.fonts or {}) do
         if selected then
             local path = lsm:Fetch("font", name, true)
-            if path then
-                danders:RegisterFontAlphabetSupport(path, { "roman", "russian" })
-                registered = not self.sessionRegistered[name] or registered
-                self.sessionRegistered[name] = true
+            local key = FontPathKey(path)
+            local font = key and coverage[key]
+            if path and self:CanRegisterFont(font) then
+                local alphabetKey = font.latin == 52 and "roman,russian" or "russian"
+                if self.registeredFontPaths[key] ~= alphabetKey then
+                    local alphabets = { "russian" }
+                    if font.latin == 52 then table.insert(alphabets, 1, "roman") end
+                    danders:RegisterFontAlphabetSupport(path, alphabets)
+                    self.registeredFontPaths[key] = alphabetKey
+                    registered = true
+                end
+                self.sessionRegistered[name] = path
             end
         end
     end
@@ -635,12 +676,20 @@ end
 
 function M:SetFontSelected(name, selected)
     local profile = self:Profile()
+    if selected then
+        local lsm = self:GetLSM()
+        local path = lsm and lsm:Fetch("font", name, true)
+        local coverage = path and self:FontCoverageIndex()[FontPathKey(path)]
+        local allowed, reason = self:CanRegisterFont(coverage)
+        if not path or not allowed then return false, reason end
+    end
     profile.fonts[name] = selected == true or nil
     if selected and profile.enabled then
         self:RegisterSelected()
     elseif self.sessionRegistered[name] then
         self.reloadRequired = true
     end
+    return true
 end
 
 function M:OnProfileChanged()

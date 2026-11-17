@@ -4,11 +4,11 @@
 ## Notes-ruRU: Панели, оформление интерфейса и инструменты для рейдов.
 ## Author: Sintezza
 ## X-License: MIT
-## Version: 1.5.153
+## Version: 1.6.1
 ## SavedVariables: Sintezza_UIDB
 ## LoadSavedVariablesFirst: 1
 ## Dependencies: Sintezza_Theme
-## OptionalDeps: EllesmereUI, EllesmereUIActionBars, EllesmereUICooldownManager, EllesmereUINameplates, DandersFrames, LibSharedMedia-3.0, SharedMediaAdditionalFonts, Lueur, EllesmereUIUnitFrames, EllesmereUIResourceBars, DoesItDieAdvanced, EllesmereUIAuraBuffReminders, EllesmereUIRaidFrames, Sintezza_UI_LocalFonts, FontMagic
+## OptionalDeps: EllesmereUI, EllesmereUIActionBars, EllesmereUICooldownManager, EllesmereUINameplates, DandersFrames, LibSharedMedia-3.0, SharedMediaAdditionalFonts, EllesmereUIUnitFrames, EllesmereUIResourceBars, DoesItDieAdvanced, EllesmereUIAuraBuffReminders, EllesmereUIRaidFrames, Sintezza_UI_LocalFonts, FontMagic, Sintezza_Perf
 ## IconTexture: Interface\AddOns\Sintezza_Theme\Media\Icons\Sintezza_UI
 
 Locales.lua
@@ -25,6 +25,7 @@ UI\Integrations.lua
 UI\SpellPicker.lua
 UI\Profiles.lua
 UI\Settings.lua
+UI\SettingsSearch.lua
 UI\MinimapButton.lua
 
 Modules\GameBar\GameBar.lua
@@ -34,6 +35,7 @@ Modules\GameBar\Tooltip.lua
 Modules\GameBar\FadeController.lua
 Modules\GameBar\Layout.lua
 Modules\GameBar\MinimapBar.lua
+Modules\GameBar\Preview.lua
 Modules\GameBar\Options.lua
 Modules\GameBar\MiniOptions.lua
 Modules\SpecBar\SpecBar.lua
@@ -68,7 +70,6 @@ Modules\Fonts\FrameAppearance.lua
 Modules\Fonts\RoundedFrames.lua
 Modules\Fonts\DandersDispelShape.lua
 Modules\Fonts\ShapeOverlays.lua
-Modules\Fonts\TooltipFonts.lua
 Modules\Fonts\TacoTipFonts.lua
 Modules\Fonts\MeterNumbers.lua
 Modules\Fonts\CombatFont.lua
@@ -82,7 +83,6 @@ Modules\Nameplates\AuraRules.lua
 Modules\Nameplates\AuraText.lua
 Modules\Nameplates\Preview.lua
 Modules\Nameplates\Options.lua
-Modules\Nameplates\LueurCompatibility.lua
 
 Modules\CooldownMasks\CooldownMasks.lua
 Modules\CooldownMasks\ActionBarRange.lua
@@ -94,7 +94,6 @@ Modules\Fonts\Options.lua
 
 Modules\PartyMap\PartyMap.lua
 Modules\PartyMap\Options.lua
-Modules\MapDisplay.lua
 Modules\TransportMap\Docks.lua
 Modules\TransportMap\TransportMap.lua
 Modules\ChatWhisperErrors.lua

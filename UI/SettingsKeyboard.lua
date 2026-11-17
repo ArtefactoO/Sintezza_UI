@@ -45,7 +45,7 @@ local function Reveal(control, window)
     end
 end
 
-function W:InstallSettingsKeyboard(ui, window, close, hint)
+function W:InstallSettingsKeyboard(ui, window, close)
     if not window.SetPropagateKeyboardInput or not window.EnableKeyboard then return end
     local ring = CreateFrame("Frame", nil, window, "BackdropTemplate")
     ring:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
@@ -57,7 +57,6 @@ function W:InstallSettingsKeyboard(ui, window, close, hint)
         local previous = focused
         focused = nil
         ring:Hide()
-        hint:Hide()
         if previous and previous.settingsOnBlur then previous:settingsOnBlur() end
         if not keepEdit and previous and previous:GetObjectType() == "EditBox" and previous:HasFocus() then
             previous:ClearFocus()
@@ -74,14 +73,15 @@ function W:InstallSettingsKeyboard(ui, window, close, hint)
         ring:SetPoint("TOPLEFT", control, "TOPLEFT", -2, 2)
         ring:SetPoint("BOTTOMRIGHT", control, "BOTTOMRIGHT", 2, -2)
         ring:Show()
-        hint:Show()
         if control:GetObjectType() == "EditBox" then control:SetFocus() end
     end
 
     local function Move(current, direction)
         local controls = {}
+        AppendInVisualOrder(ui.searchBox, controls)
+        AppendInVisualOrder(ui.searchResults, controls)
         AppendInVisualOrder(ui.navScroll and ui.navScroll.body, controls)
-        AppendInVisualOrder(ui.navFooter, controls)
+        AppendInVisualOrder(ui.heading, controls)
         AppendInVisualOrder(ui.pages[ui.currentPage], controls)
         controls[#controls + 1] = close
         local index = direction > 0 and 0 or 1
@@ -115,10 +115,10 @@ function W:InstallSettingsKeyboard(ui, window, close, hint)
         Move(edit, Direction())
     end
     function window:ClearSettingsFocus() Clear(true) end
+    function window:RevealSettingsControl(control) Reveal(control, self) end
 
     local function HasModal()
-        return (W.activeColorPickerOwner and ((ColorPickerFrame and ColorPickerFrame:IsShown())
-                or (DFColorPickerTest and DFColorPickerTest:IsShown())))
+        return (W.IsColorPickerOpen and W:IsColorPickerOpen())
             or (W.choiceMenu and W.choiceMenu.IsShown and W.choiceMenu:IsShown())
             or (StaticPopup_Visible and StaticPopup_Visible("SINTEZZA_UI_CONFIRM"))
     end
@@ -165,7 +165,6 @@ function W:InstallSettingsKeyboard(ui, window, close, hint)
         local enabled = self:IsShown() and not InCombatLockdown()
         if enabled then self:SetPropagateKeyboardInput(true) else Clear() end
         self:EnableKeyboard(enabled)
-        hint:SetShown(enabled and focused ~= nil)
     end
     window:HookScript("OnShow", window.RefreshSettingsKeyboard)
     window:HookScript("OnHide", window.RefreshSettingsKeyboard)

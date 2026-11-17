@@ -86,9 +86,7 @@ end
 
 local function LearnedStore()
     local db = SUI.db or _G.Sintezza_UIDB
-    if type(db) ~= "table" then return nil end
-    db.learnedDebuffs = type(db.learnedDebuffs) == "table" and db.learnedDebuffs or {}
-    return db.learnedDebuffs
+    if type(db) == "table" and type(db.learnedDebuffs) == "table" then return db.learnedDebuffs end
 end
 
 local function CurrentClass()
@@ -108,55 +106,6 @@ function C:IsLearnedAvailable(spellID, entry)
     end
     local class = CurrentClass()
     return class ~= nil and type(entry.classes) == "table" and entry.classes[class] == true
-end
-
-function C:RememberLearnedDebuff(spellID, name)
-    if IsSecret(spellID) or type(spellID) ~= "number" or spellID < 1 then return false end
-    local store = LearnedStore()
-    if not store then return false end
-    local entry = store[spellID]
-    local hasName = not IsSecret(name) and type(name) == "string" and name ~= ""
-    local class = CurrentClass()
-    if type(entry) == "table" then
-        local changed = false
-        if hasName and entry.name ~= name then entry.name, changed = name, true end
-        entry.classes = type(entry.classes) == "table" and entry.classes or {}
-        local learnedForClass = class and entry.classes[class] ~= true or false
-        if learnedForClass then entry.classes[class], changed = true, true end
-        if changed then self.availableCache = nil end
-        return learnedForClass
-    end
-    local classes = {}
-    if class then classes[class] = true end
-    store[spellID] = {
-        name = hasName and name or self:SpellName(spellID),
-        classes = classes,
-        seen = time and time() or 0,
-    }
-    self.availableCache = nil
-    return true
-end
-
-function C:LearnFromUnit(unit)
-    if type(unit) ~= "string" or not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return 0 end
-    if UnitExists then
-        local ok, present = pcall(UnitExists, unit)
-        if not ok or IsSecret(present) or present ~= true then return 0 end
-    end
-    local learned = 0
-    -- Only event-selected target/focus/nameplate units reach this scan. Aura
-    -- secrecy turns the first unreadable result into a quiet no-op.
-    for index = 1, 40 do
-        local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, index, "HARMFUL|PLAYER")
-        if not ok or IsSecret(aura) then break end
-        if type(aura) ~= "table" then break end
-        local spellID, name = aura.spellId, aura.name
-        if IsSecret(spellID) or IsSecret(name) then break end
-        if type(spellID) == "number" and self:RememberLearnedDebuff(spellID, name) then
-            learned = learned + 1
-        end
-    end
-    return learned
 end
 
 function C:GetLearnedAuras()

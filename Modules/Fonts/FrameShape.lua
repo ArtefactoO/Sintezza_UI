@@ -53,8 +53,8 @@ function M:SetFrameShapeValue(key, field, value)
     self:ScheduleRoundedRefresh()
 end
 
-function M:ResolveFrameShape(radius, corners, fallback, key)
-    local mode, override = self:GetFrameShapeMode(false, key)
+function M:ResolveFrameShape(radius, corners, fallback, key, configured)
+    local mode, override = self:GetFrameShapeMode(configured == true, key)
     radius = tonumber(radius) or 0
     corners = math.floor(tonumber(corners) or ALL) % 16
     if mode == "SQUARE" then return 0, ALL end

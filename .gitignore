@@ -1,3 +1,4 @@
 /Media/CombatFonts/Custom/*.ttf
 /Media/CombatFonts/Custom/*.otf
 __pycache__/
+/.releases/

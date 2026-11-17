@@ -2,165 +2,159 @@ local _, SUI = ...
 local Text = SUI.Text
 local T, W, B = SUI.SettingsTheme, SUI.Widgets, SUI.SettingsBuilder
 
-local function CombatTextState()
-    local module = SUI:GetModule("combatFont")
-    if module and module.OtherOwner and module:OtherOwner() then
-        return false, Text("Управляет другой аддон", "Managed by another addon")
-    end
-    local profile = SUI:GetModuleProfile("combatFont")
-    return profile and profile.enabled == true
-end
-
-local function RaidCheckState()
-    return SUI:GetFeature("raidTools") and SUI:GetFeature("raidCheck")
-end
-
-local function AddOverviewRow(page, card, title, detail, target, feature, tab)
-    local row = W:ActionRow(card, title, Text("Открыть", "Open"), function()
-        SUI.SettingsUI:SelectPage(target, tab)
-    end)
-    row:SetHeight(43)
-    row.label:ClearAllPoints()
-    row.label:SetPoint("TOPLEFT", row, "TOPLEFT", 2, -5)
-    row.label:SetPoint("TOPRIGHT", row.button, "TOPLEFT", -112, 4)
-    row.label:SetWordWrap(false)
-    local description = W:Label(row, detail, 10, T.muted)
-    description:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 2, 4)
-    description:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMLEFT", -8, -4)
-    description:SetWordWrap(false)
-    local state = W:Label(row, "", 10, T.muted)
-    state:SetPoint("RIGHT", row.button, "LEFT", -8, 0)
-
-    function row:Refresh()
-        local enabled, reason
-        if type(feature) == "function" then
-            enabled, reason = feature()
-        else
-            local available
-            available, reason = SUI:GetFeatureAvailability(feature)
-            enabled = available and SUI:GetFeature(feature)
-        end
-        state:SetText(reason and Text("Недоступно", "Unavailable")
-            or (enabled and Text("Включено", "On") or Text("Выключено", "Off")))
-        Sintezza_Theme:Tint(state, "SetTextColor", reason and T.warning or (enabled and T.accent or T.muted))
-        description:SetText(reason or detail)
-    end
-    B:AddRow(page, card, row)
-end
+local moduleOptions = {
+    nameplates = { "nameplates", "auras" },
+    actionBars = { "cooldownMasks", "swipe" },
+    rangeFade = { "cooldownMasks", "swipe" },
+    cdm = { "cooldownMasks", "swipe" },
+    hideSpark = { "cooldownMasks", "swipe" },
+    buffEffects = { "cooldownMasks", "buffs" },
+    procEffects = { "cooldownMasks", "procs" },
+    combatFont = { "combatFont", "font" },
+    fonts = { "fontCompatibility", "fonts" },
+    ["partyMap.markers"] = { "partyMap", "display" },
+    mapWaypointControls = { "mapOptions", "display" },
+    shortestPathMinimap = { "mapOptions", "display" },
+    transportMap = { "mapOptions", "display" },
+    ["transportMap.minimap"] = { "mapOptions", "display" },
+}
 
 local function AddIntegrationRow(page, card, definition)
+    local destination = definition.destination or moduleOptions[definition.feature]
     local row
-    if definition.info then
-        row = CreateFrame("Frame", nil, card)
-        row:SetHeight(46)
-        local label = W:Label(row, definition.label, 11, T.text)
-        label:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -5)
-        label:SetPoint("TOPRIGHT", row, "TOPRIGHT", -36, -5)
-        row.detail = W:Label(row, "", 10, T.muted)
-        row.detail:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -4)
-        row.detail:SetPoint("RIGHT", label, "RIGHT")
-        row.detail:SetWordWrap(true)
+    if destination then
+        row = W:NavigationRow(card, definition.label, "", Text("К настройке", "Open setting"), function()
+            SUI.SettingsUI:JumpTo(destination[1], destination[2], destination[3] or definition.feature)
+        end)
+    elseif definition.info then
+        row = W:SettingRow(card, definition.label)
     else
         row = W:Toggle(card, definition.label, function() return SUI:GetIntegrationSetting(definition) end, function(value)
             if SUI:SetIntegrationSetting(definition, value) then page:Refresh() end
-        end, " ", true)
+        end, nil, true)
     end
+    W:WithStatus(row)
     local refresh = row.Refresh
     function row:Refresh(...)
-        if page.selectedTab ~= "integrations" or not card.expanded then return end
+        if not card.expanded or not card:IsShown() then return end
         local available, status, detail, kind = SUI:GetIntegrationStatus(definition)
-        if self.SetAvailable then self:SetAvailable(available == true) end
-        self.detail:SetText(detail and (status .. " · " .. detail) or status)
-        Sintezza_Theme:Tint(self.detail, "SetTextColor", kind == "warning" and T.warning
+        if not destination and self.SetAvailable then self:SetAvailable(available == true) end
+        if definition.description and definition.description ~= detail then
+            detail = detail and (detail .. "\n\n" .. definition.description) or definition.description
+        end
+        if not available and kind == "warning" then
+            detail = status .. (detail and ("\n\n" .. detail) or "")
+            status = Text("Недоступно", "Unavailable")
+        end
+        W:Help(self, detail)
+        self.status:SetText(status)
+        Sintezza_Theme:Tint(self.status, "SetTextColor", kind == "warning" and T.warning
             or (kind == "active" and T.accent or T.muted))
-        if refresh then return refresh(self, ...) end
+        if refresh then refresh(self, ...) end
     end
     B:AddRow(page, card, row)
 end
 
-local function BuildIntegrations(page)
-    local tab = page.tabs.integrations
-    local headerHeight = 30
-    local sections = {}
+local function BuildPage(parent)
+    local tabKey, headerHeight = "integrations", 31
+    local page = B:CreateTabbedPage(parent, Text("Интеграции", "Integrations"),
+        Text("Проверь состояние подключений и открой нужную настройку.",
+            "Check which addons are connected and open their settings."), { { key = tabKey } }, true)
+    local tab = page.tabs[tabKey]
+    local sections, byGroup = {}, {}
+    local showUnavailable, unavailableHeader
     local function Layout()
         local top = -2
-        for _, card in ipairs(sections) do
+        local function Place(card, inset, height)
             card:ClearAllPoints()
-            card:SetPoint("TOPLEFT", tab.body, "TOPLEFT", 0, top)
+            card:SetPoint("TOPLEFT", tab.body, "TOPLEFT", inset, top)
             card:SetPoint("TOPRIGHT", tab.body, "TOPRIGHT", 0, top)
-            local height = card.expanded and card.openHeight or headerHeight
             card:SetHeight(height)
-            for _, row in ipairs(card.widgets) do row:SetShown(card.expanded) end
-            top = top - height - 10
+            card:Show()
+            top = top - height - 8
+        end
+        local unavailable = 0
+        for _, card in ipairs(sections) do
+            card.available = SUI:IsIntegrationGroupAvailable(card.group)
+            if card.available then
+                Place(card, 0, card.expanded and card.openHeight or headerHeight)
+            else
+                unavailable = unavailable + 1
+                card:Hide()
+            end
+        end
+        if unavailable > 0 then
+            Place(unavailableHeader, 0, headerHeight)
+            unavailableHeader.arrow:SetExpanded(showUnavailable)
+            if showUnavailable then
+                for _, card in ipairs(sections) do
+                    if not card.available then Place(card, 12, card.expanded and card.openHeight or headerHeight) end
+                end
+            end
+        else
+            unavailableHeader:Hide()
+        end
+        for _, card in ipairs(sections) do
+            for _, row in ipairs(card.widgets) do row:SetShown(card:IsShown() and card.expanded == true) end
         end
         tab.nextY = top
-        tab.body:SetHeight(math.max(1, -top + 2))
+        tab.body:SetHeight(math.max(tab.scroll:GetHeight(), -top + 2))
         tab.scroll:RefreshRange()
     end
-    for _, group in ipairs(SUI:GetIntegrationGroups()) do
-        local card = CreateFrame("Frame", nil, tab.body)
-        card.widgets, card.nextY = {}, -headerHeight - 6
-        sections[#sections + 1] = card
-        local arrow
-        local button = W:Button(card, group.title, function()
-            card.expanded = not card.expanded
-            if card.expanded and not card.openHeight then
-                for _, row in ipairs(group.rows) do AddIntegrationRow(page, card, row) end
-                card.openHeight = -card.nextY + 4
-            end
-            arrow:SetRotation(card.expanded and -math.pi / 2 or 0)
-            Layout()
-            page:Refresh()
-        end)
+    local function Disclosure(parentFrame, title, callback)
+        local button = W:Button(parentFrame, title, callback)
         button:SetHeight(headerHeight)
-        button:SetPoint("TOPLEFT", card, "TOPLEFT", 0, 0)
-        button:SetPoint("TOPRIGHT", card, "TOPRIGHT", 0, 0)
         button.text:ClearAllPoints()
         button.text:SetPoint("LEFT", button, "LEFT", 11, 0)
         button.text:SetPoint("RIGHT", button, "RIGHT", -34, 0)
         button.text:SetJustifyH("LEFT")
-        arrow = T:Glyph(button, "chevron", 12, T.muted)
-        arrow:SetPoint("RIGHT", button, "RIGHT", -12, 0)
+        button.arrow = T:DisclosureArrow(button, 12)
+        button.arrow:SetPoint("RIGHT", button, "RIGHT", -12, 0)
+        return button
+    end
+    unavailableHeader = Disclosure(tab.body, Text("Недоступные подключения", "Unavailable connections"), function()
+        showUnavailable = not showUnavailable
+        page:Refresh()
+    end)
+    local function SetExpanded(card, expanded)
+        card.expanded = expanded
+        if expanded and not card.openHeight then
+            for _, row in ipairs(card.group.rows) do AddIntegrationRow(page, card, row) end
+            card.openHeight = -card.nextY + 4
+        end
+        card.button.arrow:SetExpanded(expanded)
+    end
+    for _, group in ipairs(SUI:GetIntegrationGroups()) do
+        local card = CreateFrame("Frame", nil, tab.body)
+        card.group, card.widgets, card.nextY = group, {}, -headerHeight - 6
+        sections[#sections + 1], byGroup[group] = card, card
+        card.button = Disclosure(card, group.title, function()
+            SetExpanded(card, not card.expanded)
+            page:Refresh()
+        end)
+        card.button:SetPoint("TOPLEFT")
+        card.button:SetPoint("TOPRIGHT")
+        local topics = {}
+        for _, option in ipairs(group.rows) do topics[#topics + 1] = option.label end
+        local description = #topics == 1 and group.rows[1].description or table.concat(topics, "\n")
+        W:Help(card.button, description, card.button.text)
+    end
+    function page:OpenIntegrationGroup(group)
+        local card = byGroup[group]
+        if not card then return end
+        if not SUI:IsIntegrationGroupAvailable(group) then showUnavailable = true end
+        SetExpanded(card, true)
+        self:Refresh()
+        local window = SUI.SettingsUI.window
+        if window and window.RevealSettingsControl then window:RevealSettingsControl(card.button) end
+    end
+    local refresh = page.Refresh
+    function page:Refresh()
+        Layout()
+        refresh(self)
     end
     Layout()
-end
-
-local function BuildPage(parent)
-    local page = B:CreateTabbedPage(parent, Text("Функции", "Features"), nil, {
-        { key = "overview", title = Text("Обзор", "Overview") },
-        { key = "integrations", title = Text("Интеграции", "Integrations") },
-    })
-    local card = B:AddSection(page, "overview", Text("Модули Sintezza UI", "Sintezza UI modules"))
-    AddOverviewRow(page, card, Text("Игровая панель", "Game bar"),
-        Text("Системные кнопки и часы", "System buttons and clock"), "gameBar", "gameBar")
-    AddOverviewRow(page, card, Text("Мини-панель", "Minimap bar"),
-        Text("Часы, друзья, гильдия и показатели", "Clock, friends, guild and system stats"), "gameBarMini", "miniBar")
-    AddOverviewRow(page, card, Text("Проверка рейда", "Raid check"),
-        Text("Окно готовности и тест", "Ready status and test"), "raidTools", RaidCheckState, "audit")
-    AddOverviewRow(page, card, Text("Рейд-инструменты", "Raid tools"),
-        Text("Метки, команды и пинги", "Markers, commands and pings"), "raidTools", "raidTools", "general")
-    AddOverviewRow(page, card, Text("Карта группы", "Party map"),
-        Text("Метки сопартийцев", "Party markers"), "partyMap", "partyMap")
-    AddOverviewRow(page, card, Text("Неймплейты", "Nameplates"),
-        Text("Угроза, выбранная цель и окраска по аурам", "Threat, selected target, and aura colors"), "nameplates", "nameplates")
-    AddOverviewRow(page, card, Text("Индикаторы боя", "Combat alerts"),
-        Text("Вход в бой и скрытность", "Combat and stealth transitions"), "combatAlert", "combatAlert")
-    AddOverviewRow(page, card, Text("Боевой текст", "Combat text"),
-        Text("Шрифт цифр и надписей", "Font for numbers and labels"), "combatFont", CombatTextState)
-    AddOverviewRow(page, card, Text("Иконки и откат", "Icons and cooldowns"),
-        Text("Свайп, эффекты бафов и проков", "Swipe, buff and proc effects"), "cooldownMasks", "cooldownMasks")
-    AddOverviewRow(page, card, SUI.isForever and Text("Панель талантов", "Talent bar") or Text("Панель специализаций", "Specialization bar"),
-        SUI.isForever and Text("Быстрый доступ к талантам", "Quick access to talents")
-            or Text("Специализация и добыча", "Specialization and loot"), "specBar", "specBar")
-    if not SUI.isForever then
-        AddOverviewRow(page, card, Text("Напоминание о телепорте", "Teleport reminder"),
-            Text("Телепорт в подземелье после сбора группы", "Dungeon teleport after the group forms"),
-            "teleportPrompt", "teleport")
-    end
-    B:FinishCard(page, "overview", card)
-
-    BuildIntegrations(page)
     return page
 end
 
-SUI:RegisterSettingsPage({ key = "features", title = Text("Функции", "Features"), group = "ОБЩЕЕ", order = 15, builder = BuildPage })
+SUI:RegisterSettingsPage({ key = "integrations", title = Text("Интеграции", "Integrations"), group = "СИСТЕМА", order = 10, builder = BuildPage })

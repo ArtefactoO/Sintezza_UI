@@ -109,7 +109,6 @@ function MinimapButton:CreateLauncher(name, parent, texture)
     button:SetFrameStrata("MEDIUM")
     button:SetFrameLevel((Minimap:GetFrameLevel() or 0) + 8)
     button:SetClampedToScreen(true)
-    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     button:RegisterForDrag("LeftButton")
 
     -- Use Blizzard's conventional minimap regions instead of a frame
@@ -182,8 +181,7 @@ function MinimapButton:CreateButton()
         self.hover:Show()
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine("Sintezza UI", .047, .824, .624)
-        GameTooltip:AddLine(Text("ЛКМ — открыть настройки", "Left-click to open settings"), .85, .88, .90)
-        GameTooltip:AddLine(Text("ПКМ — быстрое меню", "Right-click for quick settings"), .85, .88, .90)
+        Sintezza_Theme:AddMinimapToggleHint(GameTooltip)
         if self:GetParent() == Minimap then
             GameTooltip:AddLine(Text("Перетащите — изменить положение", "Drag to move"), .50, .55, .59)
         end
@@ -193,14 +191,15 @@ function MinimapButton:CreateButton()
         self.hover:Hide()
         GameTooltip:Hide()
     end)
-    button:SetScript("OnClick", function(self, mouseButton)
-        if self.__suiDragged then
+    Sintezza_Theme:BindMinimapToggle(button, {
+        window = function() return SUI.SettingsUI and SUI.SettingsUI.window end,
+        open = function() SUI:OpenSettings("dashboard") end,
+        canToggle = function(self)
+            if not self.__suiDragged then return true end
             self.__suiDragged = nil
-            return
-        end
-        if mouseButton == "RightButton" then MinimapButton:OpenQuickMenu(self)
-        else SUI:OpenSettings("dashboard") end
-    end)
+            return false
+        end,
+    })
     self:EnableLauncherDrag(button, Minimap, function(angle)
         local settings = self:GetSettings()
         if not settings then return end

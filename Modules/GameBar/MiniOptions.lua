@@ -16,10 +16,27 @@ local function TP()
     return Mini().tooltip
 end
 local function Add(page, card, widget) return B:AddRow(page, card, widget) end
-local function Toggle(page, card, label, get, set) return Add(page, card, W:Toggle(card, label, get, set)) end
-local function Slider(page, card, label, low, high, step, get, set) return Add(page, card, W:SliderRow(card, label, low, high, step, get, set)) end
-local function Choice(page, card, label, choices, get, set) return Add(page, card, W:ChoiceRow(card, label, choices, get, set)) end
-local function Color(page, card, label, get, set) return Add(page, card, W:ColorRow(card, label, get, set)) end
+local function UpdatePreviews(page)
+    for _, sample in ipairs(page.miniPreviews) do sample:Refresh() end
+end
+local function WithPreview(page, set)
+    return function(value)
+        set(value)
+        UpdatePreviews(page)
+    end
+end
+local function Toggle(page, card, label, get, set, detail)
+    return Add(page, card, W:Toggle(card, label, get, WithPreview(page, set), detail))
+end
+local function Slider(page, card, label, low, high, step, get, set)
+    return Add(page, card, W:SliderRow(card, label, low, high, step, get, WithPreview(page, set)))
+end
+local function Choice(page, card, label, choices, get, set)
+    return Add(page, card, W:ChoiceRow(card, label, choices, get, WithPreview(page, set)))
+end
+local function Color(page, card, label, get, set)
+    return Add(page, card, W:ColorRow(card, label, get, WithPreview(page, set)))
+end
 local function Finish(page, tab, card) B:FinishCard(page, tab, card) end
 
 local function BindAvailable(row, predicate)
@@ -45,9 +62,28 @@ local function BuildPage(parent)
         { key = "general", title = Text("Основное", "General") },
         { key = "appearance", title = Text("Оформление", "Appearance") },
         { key = "layout", title = Text("Компоновка", "Layout") },
-        { key = "elements", title = Text("Элементы", "Elements") },
+        { key = "elements", title = Text("Часы и списки", "Clock and lists") },
         { key = "advanced", title = Text("Дополнительно", "Advanced") },
     })
+
+    page.miniPreviews = {}
+    local function AddPreview(columns, tab, resting)
+        local card = B:AddColumnSection(page, columns, "right", Text("Предпросмотр", "Preview"),
+            Text("Показывает оформление и текущие данные панели.", "Shows the panel's live values and style."), true)
+        local sample = Add(page, card, M:CreateMiniSettingsPreview(card))
+        page.miniPreviews[#page.miniPreviews + 1] = sample
+        if resting then
+            local play = W:NavigationRow(card, Text("Индикатор зоны отдыха", "Rest area indicator"),
+                nil, Text("Проверить Zz", "Preview Zz"), function() M:PreviewMiniResting(sample.resting) end)
+            Add(page, card, W:BindAvailability(play, function()
+                if Mini().enabled ~= true or Mini().showResting == false then
+                    return false, Text("Включи панель и показ Zz.", "Enable the bar and Zz indicator.")
+                end
+                return true
+            end))
+        end
+        Finish(page, tab, card)
+    end
 
     local columns = B:BeginColumns(page, "general")
     local card = B:AddColumnSection(page, columns, "left", Text("Панель", "Bar"))
@@ -59,49 +95,64 @@ local function BuildPage(parent)
     Toggle(page, card, Text("Блокировать положение", "Lock position"), function() return Mini().locked ~= false end, function(v)
         Mini().locked = v
     end)
-    Finish(page, "general", card)
-
-    card = B:AddColumnSection(page, columns, "right", Text("Видимость", "Visibility"))
-    Toggle(page, card, Text("Только при наведении", "Show on hover"), function() return Mini().mouseover == true end, function(v)
-        Mini().mouseover = v
-        if M.RefreshMiniBarFade then M:RefreshMiniBarFade() end
+    B:AddRow(page, card, W:FeatureToggle(card, "showClock", Text("Часы", "Clock"),
+        Text("ЛКМ открывает календарь, ПКМ — часы и будильник.", "Left-click opens the calendar, right-click opens the clock and alarm."),
+        nil, function() UpdatePreviews(page) end))
+    local fps = Toggle(page, card, Text("Показывать FPS", "Show frame rate"), function() return Mini().showFPS ~= false end, function(v)
+        Mini().showFPS = v
+        ApplyMini()
+    end)
+    fps.settingsID = "miniFPS"
+    local latency = Toggle(page, card, Text("Показывать задержку", "Show latency"), function() return Mini().showLatency ~= false end, function(v)
+        Mini().showLatency = v
+        ApplyMini()
+    end)
+    latency.settingsID = "miniLatency"
+    local resting = Toggle(page, card, Text("Показывать Zz в зоне отдыха", "Show Zz in rest areas"), function() return Mini().showResting ~= false end, function(v)
+        Mini().showResting = v
+        ApplyMini()
         page:Refresh()
     end)
-    local hoverAlpha = Slider(page, card, Text("Яркость при наведении", "Hover opacity"), .1, 1, .05, function()
-        return Mini().hoverAlpha or 1
-    end, function(v)
-        Mini().hoverAlpha = v
-        if M.RefreshMiniBarFade then M:RefreshMiniBarFade() end
+    resting.settingsID = "miniResting"
+    Toggle(page, card, Text("Кнопка друзей", "Friends button"), function() return Mini().showFriends ~= false end, function(v)
+        Mini().showFriends = v
+        ApplyMini()
     end)
-    BindAvailable(hoverAlpha, function() return Mini().mouseover == true end)
-    Choice(page, card, Text("В бою", "In combat"), {
-        SHOW = Text("Показывать", "Show"),
-        HIDE = Text("Скрывать", "Hide"),
-        SHOW_ON_HOVER = Text("По общему режиму", "Use normal visibility"),
-    }, function() return Mini().combatVisibility end, function(v)
-        Mini().combatVisibility = v
-        if M.ApplyMiniBarVisibility then M:ApplyMiniBarVisibility() end
-        if M.RefreshMiniBarFade then M:RefreshMiniBarFade() end
+    Toggle(page, card, Text("Кнопка гильдии", "Guild button"), function() return Mini().showGuild ~= false end, function(v)
+        Mini().showGuild = v
+        ApplyMini()
     end)
-    Toggle(page, card, Text("Скрывать в битве питомцев", "Hide during pet battles"), function() return Mini().hideInPetBattle == true end, function(v)
-        Mini().hideInPetBattle = v
-        if M.ApplyMiniBarVisibility then M:ApplyMiniBarVisibility() end
+    local scale = Slider(page, card, Text("Масштаб панели", "Bar scale"), .60, 1.40, .05, function() return Mini().scale or .9 end, function(v)
+        Mini().scale = v
+        M:ApplyMiniBarPosition()
     end)
+    scale.settingsID = "miniScale"
+    local transparency = W:TransparencySlider(card, Text("Прозрачность панели", "Bar transparency"), 90,
+        function() return Mini().hoverAlpha end, function(opacity)
+            Mini().hoverAlpha = opacity
+            M:RefreshMiniBarFade()
+            UpdatePreviews(page)
+        end)
+    transparency.settingsID = "miniBarTransparency"
+    Add(page, card, W:Help(transparency, Text("Меняет фон, текст и иконки вместе. 0% — непрозрачная панель.",
+        "Changes the background, text and icons together. 0% is an opaque bar.")))
     Finish(page, "general", card)
+
+    AddPreview(columns, "general", true)
     B:FinishColumns(page, "general", columns)
 
     columns = B:BeginColumns(page, "appearance")
+    AddPreview(columns, "appearance")
     card = B:AddColumnSection(page, columns, "left", Text("Панель", "Bar"))
     Toggle(page, card, Text("Показывать фон", "Show background"), function() return MA().backdropEnabled ~= false end, function(v)
         MA().backdropEnabled = v
         M:ApplyMiniBarStyle()
         page:Refresh()
     end)
-    local backdrop = Color(page, card, Text("Цвет и прозрачность", "Color and opacity"), function() return MA().backdropColor end, function(v)
-        MA().backdropColor = v
-        M:ApplyMiniBarStyle()
-    end)
-    BindAvailable(backdrop, function() return MA().backdropEnabled ~= false end)
+    local backdrop, backdropTransparency = W:BackdropControls(card, MA, function() M:ApplyMiniBarStyle(); UpdatePreviews(page) end)
+    backdropTransparency.settingsID = "miniBarBackdropTransparency"
+    Add(page, card, backdrop)
+    Add(page, card, backdropTransparency)
     Choice(page, card, Text("Стиль рамки", "Border style"), { SOLID = Text("Сплошная", "Solid"), GLOW = Text("Свечение", "Glow") }, function()
         return MA().borderStyle
     end, function(v)
@@ -123,11 +174,11 @@ local function BuildPage(parent)
         MA().iconColor = v
         M:ApplyMiniBarStyle()
     end)
-    Slider(page, card, Text("Яркость", "Brightness"), .1, 1, .05, function() return MA().iconAlpha or .9 end, function(v)
+    Slider(page, card, Text("Яркость иконок", "Icon brightness"), .1, 1, .05, function() return MA().iconAlpha or .9 end, function(v)
         MA().iconAlpha = v
         M:ApplyMiniBarStyle()
     end)
-    Slider(page, card, Text("Прозрачность отдыха", "Resting indicator opacity"), .1, 1, .05, function() return MA().restingAlpha or .62 end, function(v)
+    Slider(page, card, Text("Яркость Zz", "Zz opacity"), .1, 1, .05, function() return MA().restingAlpha or .62 end, function(v)
         MA().restingAlpha = v
         M:ApplyMiniBarStyle()
     end)
@@ -227,11 +278,10 @@ local function BuildPage(parent)
         RefreshTooltip()
         page:Refresh()
     end)
-    local tooltipBackdrop = Color(page, card, Text("Цвет и прозрачность", "Color and opacity"), function() return TP().backdropColor end, function(v)
-        TP().backdropColor = v
-        RefreshTooltip()
-    end)
-    BindAvailable(tooltipBackdrop, function() return TP().backdropEnabled ~= false end)
+    local tooltipBackdrop, tooltipTransparency = W:BackdropControls(card, TP, RefreshTooltip)
+    tooltipTransparency.settingsID = "socialListBackdropTransparency"
+    Add(page, card, tooltipBackdrop)
+    Add(page, card, tooltipTransparency)
     Choice(page, card, Text("Стиль рамки", "Border style"), { SOLID = Text("Сплошная", "Solid"), GLOW = Text("Свечение", "Glow") }, function()
         return TP().borderStyle
     end, function(v)
@@ -249,11 +299,8 @@ local function BuildPage(parent)
     Finish(page, "appearance", card)
 
     columns = B:BeginColumns(page, "layout")
+    AddPreview(columns, "layout")
     card = B:AddColumnSection(page, columns, "left", Text("Общая геометрия", "Bar dimensions"))
-    Slider(page, card, Text("Общий масштаб", "Overall scale"), .60, 1.40, .05, function() return Mini().scale or .9 end, function(v)
-        Mini().scale = v
-        M:ApplyMiniBarPosition()
-    end)
     Toggle(page, card, Text("Автоматическая ширина", "Automatic width"), function() return Mini().autoWidth ~= false end, function(v)
         Mini().autoWidth = v
         M:ApplyMiniBarLayout()
@@ -287,10 +334,11 @@ local function BuildPage(parent)
         Mini().socialIconSize = v
         M:ApplyMiniBarLayout()
     end)
-    Slider(page, card, Text("Анимация отдыха", "Resting indicator"), 16, 40, 1, function() return Mini().restingSize or 24 end, function(v)
+    local restingSize = Slider(page, card, Text("Размер Zz", "Zz size"), 16, 40, 1, function() return Mini().restingSize or 24 end, function(v)
         Mini().restingSize = v
         M:ApplyMiniBarLayout()
     end)
+    restingSize.settingsID = "miniRestingSize"
     Slider(page, card, Text("Ширина часов", "Clock width"), 36, 120, 1, function() return Mini().clockWidth or 48 end, function(v)
         Mini().clockWidth = v
         M:ApplyMiniBarLayout()
@@ -310,20 +358,22 @@ local function BuildPage(parent)
     Finish(page, "layout", card)
     B:FinishColumns(page, "layout", columns)
 
-    card = B:AddSection(page, "layout", Text("Геометрия списков", "List layout"))
+    card = B:AddSection(page, "layout", Text("Размеры списков друзей и гильдии", "Friend and guild list dimensions"),
+        Text("Настройки списков, которые открываются при наведении на кнопки друзей и гильдии под миникартой.",
+            "Controls the lists that appear when you hover over the Friends and Guild buttons below the minimap."))
     Slider(page, card, Text("Ширина списка", "List width"), 280, 600, 5, function() return TP().width or 390 end, function(v)
         TP().width = v
         RefreshTooltip()
     end)
-    Slider(page, card, Text("Внешний отступ", "Outer padding"), 4, 24, 1, function() return TP().padding or 10 end, function(v)
+    Slider(page, card, Text("Отступ от края списка", "List edge padding"), 4, 24, 1, function() return TP().padding or 10 end, function(v)
         TP().padding = v
         RefreshTooltip()
     end)
-    Slider(page, card, Text("Интервал строк", "Row spacing"), 0, 12, 1, function() return TP().rowSpacing or 2 end, function(v)
+    Slider(page, card, Text("Расстояние между строками", "Spacing between list rows"), 0, 12, 1, function() return TP().rowSpacing or 2 end, function(v)
         TP().rowSpacing = v
         RefreshTooltip()
     end)
-    Slider(page, card, Text("Максимум персонажей", "Maximum characters"), 5, 50, 1, function() return TP().maxRows or 24 end, function(v)
+    Slider(page, card, Text("Лимит персонажей в списке", "Character limit per list"), 5, 50, 1, function() return TP().maxRows or 24 end, function(v)
         TP().maxRows = v
         RefreshTooltip()
     end)
@@ -331,18 +381,6 @@ local function BuildPage(parent)
 
     columns = B:BeginColumns(page, "elements")
     card = B:AddColumnSection(page, columns, "left", Text("Социальные элементы", "Social buttons"))
-    Toggle(page, card, Text("Анимация отдыха", "Resting indicator"), function() return Mini().showResting ~= false end, function(v)
-        Mini().showResting = v
-        ApplyMini()
-    end)
-    Toggle(page, card, Text("Кнопка друзей", "Friends button"), function() return Mini().showFriends ~= false end, function(v)
-        Mini().showFriends = v
-        ApplyMini()
-    end)
-    Toggle(page, card, Text("Кнопка гильдии", "Guild button"), function() return Mini().showGuild ~= false end, function(v)
-        Mini().showGuild = v
-        ApplyMini()
-    end)
     Toggle(page, card, Text("Скрывать нулевой онлайн", "Hide zero online counts"), function() return Mini().hideZeroCounts ~= false end, function(v)
         Mini().hideZeroCounts = v
         M:UpdateMiniOnline()
@@ -350,15 +388,6 @@ local function BuildPage(parent)
     Finish(page, "elements", card)
 
     card = B:AddColumnSection(page, columns, "right", Text("Часы и показатели", "Clock and stats"))
-    B:AddRow(page, card, W:FeatureToggle(card, "showClock", Text("Показывать часы мини-панели", "Show the minimap bar clock")))
-    Toggle(page, card, Text("Показывать FPS", "Show frame rate"), function() return Mini().showFPS ~= false end, function(v)
-        Mini().showFPS = v
-        ApplyMini()
-    end)
-    Toggle(page, card, Text("Показывать задержку", "Show latency"), function() return Mini().showLatency ~= false end, function(v)
-        Mini().showLatency = v
-        ApplyMini()
-    end)
     Toggle(page, card, Text("24-часовой формат", "24-hour clock"), function() return Mini().twentyFourHour ~= false end, function(v)
         Mini().twentyFourHour = v
         M:UpdateClock()
@@ -371,7 +400,7 @@ local function BuildPage(parent)
     B:FinishColumns(page, "elements", columns)
 
     card = B:AddSection(page, "elements", Text("Списки друзей и гильдии", "Friends and guild lists"))
-    Toggle(page, card, Text("Группировать по контексту", "Group by location"), function() return TP().groupByContext ~= false end, function(v)
+    Toggle(page, card, Text("Сначала группа и текущая зона", "Show group and nearby players first"), function() return TP().groupByContext ~= false end, function(v)
         TP().groupByContext = v
         RefreshTooltip()
     end)
@@ -387,6 +416,26 @@ local function BuildPage(parent)
     Finish(page, "elements", card)
 
     columns = B:BeginColumns(page, "advanced")
+    card = B:AddColumnSection(page, columns, "left", Text("Видимость", "Visibility"))
+    Toggle(page, card, Text("Только при наведении", "Show on hover"), function() return Mini().mouseover == true end, function(v)
+        Mini().mouseover = v
+        if M.RefreshMiniBarFade then M:RefreshMiniBarFade() end
+        page:Refresh()
+    end)
+    Choice(page, card, Text("В бою", "In combat"), {
+        SHOW = Text("Показывать", "Show"),
+        HIDE = Text("Скрывать", "Hide"),
+        SHOW_ON_HOVER = Text("По общему режиму", "Use normal visibility"),
+    }, function() return Mini().combatVisibility end, function(v)
+        Mini().combatVisibility = v
+        if M.ApplyMiniBarVisibility then M:ApplyMiniBarVisibility() end
+        if M.RefreshMiniBarFade then M:RefreshMiniBarFade() end
+    end)
+    Toggle(page, card, Text("Скрывать в битве питомцев", "Hide during pet battles"), function() return Mini().hideInPetBattle == true end, function(v)
+        Mini().hideInPetBattle = v
+        if M.ApplyMiniBarVisibility then M:ApplyMiniBarVisibility() end
+    end)
+    Finish(page, "advanced", card)
     card = B:AddColumnSection(page, columns, "left", Text("Анимация видимости", "Hover fade"))
     local fadeDelay = Slider(page, card, Text("Задержка исчезновения", "Fade delay"), .03, 1, .01, function()
         return Mini().fadeDelay or .04

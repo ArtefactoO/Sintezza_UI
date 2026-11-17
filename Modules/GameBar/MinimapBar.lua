@@ -6,6 +6,14 @@ local MINI_ICON_PATH = Sintezza_Theme.icons.GameBar
 local issecretvalue = issecretvalue or function() return false end
 local MINI_MEMORY_LIMIT, MINI_MEMORY_REFRESH = 7, 30
 local miniMemoryRows, miniMemoryScanTime = {}, -math.huge
+local REST_STAGGER, REST_RISE, REST_FADE_AT, REST_FADE, REST_CYCLE = .32, .53, 1.54, .55, 2.24
+local REST_LIFT = .10
+local REST_ART = "Interface\\AddOns\\Sintezza_UI\\Media\\RestingGlyphs.png"
+local REST_GLYPHS = {
+    { cell = 0, x = -.27, y = -.23, height = .38, alpha = .42 },
+    { cell = 0, x = -.01, y = .00, height = .47, alpha = .70 },
+    { cell = 1, x = .28, y = .28, height = .58, alpha = 1 },
+}
 
 local function MiniProfile()
     local profile = SGB.profile
@@ -108,15 +116,69 @@ local function HoverColor()
     return color[1], color[2], color[3], color[4] or 1
 end
 
+local function PaintRestingGlyphs(button, elapsed)
+    local size = button.restingSize
+    local fade = 1 - math.max(0, math.min(1, (elapsed - REST_FADE_AT) / REST_FADE))
+    fade = fade * fade * (3 - 2 * fade)
+    for index, glyph in ipairs(button.restingGlyphs) do
+        local progress = math.max(0, math.min(1, (elapsed - (index - 1) * REST_STAGGER) / REST_RISE))
+        local layout = REST_GLYPHS[index]
+        local rise = progress * progress * (3 - 2 * progress)
+        if glyph.restProgress ~= progress or glyph.restSize ~= size then
+            local side = size * layout.height * (.84 + .16 * rise)
+            glyph:SetSize(side, side)
+            glyph:SetPoint("CENTER", button, "CENTER",
+                size * (layout.x - .07 * (1 - rise)), size * (layout.y - REST_LIFT * (1 - rise)))
+            glyph.restProgress, glyph.restSize = progress, size
+        end
+        local alpha = rise * fade * layout.alpha
+        if glyph.restAlpha ~= alpha then
+            glyph:SetAlpha(alpha)
+            glyph.restAlpha = alpha
+        end
+    end
+end
+
+local function UpdateRestingMotion(button, elapsed)
+    button.restingElapsed = (button.restingElapsed + elapsed) % REST_CYCLE
+    PaintRestingGlyphs(button, button.restingElapsed)
+end
+
+local function SetRestingMotion(button, active, restart)
+    if not button then return end
+    if not active then
+        button.restingElapsed = nil
+        button:SetScript("OnUpdate", nil)
+    elseif restart or button.restingElapsed == nil then
+        button.restingElapsed = 0
+        PaintRestingGlyphs(button, 0)
+        button:SetScript("OnUpdate", UpdateRestingMotion)
+    end
+end
+
+local function SetRestingSize(button, size)
+    if button.restingSize == size then return end
+    button.restingSize = size
+    button:SetSize(size, size)
+    PaintRestingGlyphs(button, button.restingElapsed or 0)
+end
+
+local function ColorRestingGlyphs(button, ...)
+    for _, glyph in ipairs(button.restingGlyphs) do glyph:SetVertexColor(...) end
+end
+
 function SGB:MiniBarFadeTo(alpha)
     local visual = self.miniBarVisual or self.miniBarRoot
     if not visual then return end
     if not self.miniFadeControllerFrame then self.miniFadeControllerFrame = CreateFrame("Frame") end
     local controller = self.miniFadeControllerFrame
     self.miniFadeTarget = alpha
+    local resting = self.miniResting
+    if alpha > 0 and resting and resting:IsVisible() then SetRestingMotion(resting, true) end
     if math.abs(visual:GetAlpha() - alpha) < .001 then
         visual:SetAlpha(alpha)
         controller:SetScript("OnUpdate", nil)
+        if alpha == 0 then SetRestingMotion(resting, false) end
         return
     end
     controller:SetScript("OnUpdate", function(frame, elapsed)
@@ -129,7 +191,10 @@ function SGB:MiniBarFadeTo(alpha)
         if current < target then current = math.min(target, current + step)
         else current = math.max(target, current - step) end
         fadeFrame:SetAlpha(current)
-        if current == target then frame:SetScript("OnUpdate", nil) end
+        if current == target then
+            frame:SetScript("OnUpdate", nil)
+            if target == 0 then SetRestingMotion(SGB.miniResting, false) end
+        end
     end)
 end
 
@@ -281,32 +346,37 @@ end
 function SGB:CreateMiniRestingWidget(parent)
     local button = CreateFrame("Button", nil, parent)
     button.kind = "resting"
-    button:SetSize(24, 20)
     button:SetFrameLevel(parent:GetFrameLevel() + 8)
     button:Hide()
-    button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    button.text:SetPoint("CENTER")
-    button.text:SetText("Zz")
-    local pulse = button:CreateAnimationGroup()
-    pulse:SetLooping("BOUNCE")
-    local fade = pulse:CreateAnimation("Alpha")
-    fade:SetFromAlpha(.7)
-    fade:SetToAlpha(1)
-    fade:SetDuration(.65)
-    fade:SetSmoothing("IN_OUT")
-    button:SetScript("OnShow", function() pulse:Play() end)
-    button:SetScript("OnHide", function() pulse:Stop() end)
+    button.restingGlyphs = {}
+    for index, layout in ipairs(REST_GLYPHS) do
+        local glyph = button:CreateTexture(nil, "OVERLAY", nil, index)
+        glyph:SetTexture(REST_ART)
+        glyph:SetTexCoord(layout.cell * .5, (layout.cell + 1) * .5, 0, 1)
+        button.restingGlyphs[index] = glyph
+    end
+    SetRestingSize(button, 24)
+    button:SetScript("OnShow", function(self)
+        SetRestingMotion(self, parent:GetAlpha() > 0 or (SGB.miniFadeTarget or 0) > 0)
+    end)
+    button:SetScript("OnHide", function(self) SetRestingMotion(self, false) end)
     button:SetScript("OnEnter", function(self)
         SGB:OnMiniBarEnter()
-        self.text:SetTextColor(HoverColor())
+        ColorRestingGlyphs(self, HoverColor())
         SGB:ShowMiniInfoTooltip(self, "resting")
     end)
     button:SetScript("OnLeave", function(self)
-        self.text:SetTextColor(MiniIconColor(true))
+        ColorRestingGlyphs(self, MiniIconColor(true))
         SGB:HideTooltip()
         SGB:OnMiniBarLeave()
     end)
     return button
+end
+
+function SGB:PreviewMiniResting(button)
+    button = button or self.miniResting
+    if not (button and button:IsVisible()) then return end
+    SetRestingMotion(button, true, true)
 end
 
 function SGB:ColorMiniSocialButton(button, hovered)
@@ -412,8 +482,9 @@ function SGB:ApplyMiniBarPosition()
     root:SetScale(tonumber(mini.scale) or .9)
 end
 
-function SGB:ApplyMiniBarStyle()
-    local root = self.miniBarVisual or self.miniBarRoot
+function SGB:ApplyMiniBarStyle(bar)
+    bar = bar or self
+    local root = bar.miniBarVisual or bar.miniBarRoot
     if not root then return end
     local appearance = MiniAppearance()
     self:ApplySegmentStyle(root, appearance)
@@ -422,24 +493,25 @@ function SGB:ApplyMiniBarStyle()
     local badgeFont = self:GetFont(appearance.badgeFont or appearance.font)
     local badgeOutline = self:GetFontFlags(appearance.badgeOutline, outline)
     local badgeColor = appearance.badgeColor or { 1, .82, 0, 1 }
-    self.miniClock.text:SetFont(font, tonumber(appearance.clockFontSize) or 14, outline)
-    self.miniFPS.text:SetFont(font, tonumber(appearance.dataFontSize) or 10, outline)
-    self.miniLatency.text:SetFont(font, tonumber(appearance.dataFontSize) or 10, outline)
-    self.miniFriends.badge:SetFont(badgeFont, tonumber(appearance.badgeFontSize) or 10, badgeOutline)
-    self.miniGuild.badge:SetFont(badgeFont, tonumber(appearance.badgeFontSize) or 10, badgeOutline)
-    for _, button in ipairs({ self.miniFriends, self.miniGuild }) do
+    bar.miniClock.text:SetFont(font, tonumber(appearance.clockFontSize) or 14, outline)
+    bar.miniFPS.text:SetFont(font, tonumber(appearance.dataFontSize) or 10, outline)
+    bar.miniLatency.text:SetFont(font, tonumber(appearance.dataFontSize) or 10, outline)
+    bar.miniFriends.badge:SetFont(badgeFont, tonumber(appearance.badgeFontSize) or 10, badgeOutline)
+    bar.miniGuild.badge:SetFont(badgeFont, tonumber(appearance.badgeFontSize) or 10, badgeOutline)
+    for _, button in ipairs({ bar.miniFriends, bar.miniGuild }) do
         button.badge:SetTextColor(badgeColor[1] or 1, badgeColor[2] or .82, badgeColor[3] or 0, badgeColor[4] or 1)
     end
-    for _, widget in ipairs({ self.miniClock, self.miniFPS, self.miniLatency }) do
+    for _, widget in ipairs({ bar.miniClock, bar.miniFPS, bar.miniLatency }) do
         widget.text:SetTextColor(MiniTextColor())
     end
-    self.miniResting.text:SetTextColor(MiniIconColor(true))
-    self:ColorMiniSocialButton(self.miniFriends, false)
-    self:ColorMiniSocialButton(self.miniGuild, false)
+    ColorRestingGlyphs(bar.miniResting, MiniIconColor(true))
+    self:ColorMiniSocialButton(bar.miniFriends, false)
+    self:ColorMiniSocialButton(bar.miniGuild, false)
 end
 
-function SGB:ApplyMiniBarLayout()
-    local root, mini = self.miniBarRoot, MiniProfile()
+function SGB:ApplyMiniBarLayout(bar)
+    bar = bar or self
+    local root, mini = bar.miniBarRoot, MiniProfile()
     if not root or not mini then return end
     local appearance = MiniAppearance()
     local panelHeight = math.max(22, tonumber(mini.height) or 30)
@@ -451,17 +523,15 @@ function SGB:ApplyMiniBarLayout()
     local latencyWidth = math.max(32, tonumber(mini.latencyWidth) or 48)
     local contentYOffset = tonumber(mini.contentYOffset) or 0
 
-    self.miniClock:SetSize(clockWidth, panelHeight)
-    self.miniFriends:SetSize(socialWidth, panelHeight)
-    self.miniGuild:SetSize(socialWidth, panelHeight)
-    self.miniFPS:SetSize(fpsWidth, panelHeight)
-    self.miniLatency:SetSize(latencyWidth, panelHeight)
-    self.miniFriends.icon:SetSize(socialIconSize, socialIconSize)
-    self.miniGuild.icon:SetSize(socialIconSize, socialIconSize)
-    self.miniResting:SetSize(restingSize, restingSize)
-    local restingFont = GameFontNormalSmall:GetFont()
-    self.miniResting.text:SetFont(restingFont, math.floor(restingSize * .65), "OUTLINE")
-    for _, button in ipairs({ self.miniFriends, self.miniGuild }) do
+    bar.miniClock:SetSize(clockWidth, panelHeight)
+    bar.miniFriends:SetSize(socialWidth, panelHeight)
+    bar.miniGuild:SetSize(socialWidth, panelHeight)
+    bar.miniFPS:SetSize(fpsWidth, panelHeight)
+    bar.miniLatency:SetSize(latencyWidth, panelHeight)
+    bar.miniFriends.icon:SetSize(socialIconSize, socialIconSize)
+    bar.miniGuild.icon:SetSize(socialIconSize, socialIconSize)
+    SetRestingSize(bar.miniResting, restingSize)
+    for _, button in ipairs({ bar.miniFriends, bar.miniGuild }) do
         button.badge:ClearAllPoints()
         button.badge:SetPoint(
             "TOP", button.icon, "TOP",
@@ -469,20 +539,19 @@ function SGB:ApplyMiniBarLayout()
         )
         button.badge:SetWidth(math.max(socialWidth, socialIconSize * 1.5))
     end
-    self:ColorMiniSocialButton(self.miniFriends, false)
-    self:ColorMiniSocialButton(self.miniGuild, false)
+    self:ColorMiniSocialButton(bar.miniFriends, false)
+    self:ColorMiniSocialButton(bar.miniGuild, false)
     for _, widget in ipairs({
-        self.miniClock, self.miniResting, self.miniFriends,
-        self.miniGuild, self.miniFPS, self.miniLatency,
+        bar.miniClock, bar.miniFriends, bar.miniGuild, bar.miniFPS, bar.miniLatency,
     }) do
         widget:Hide()
     end
     local widgets = {}
-    if mini.showClock ~= false then widgets[#widgets + 1] = self.miniClock end
-    if mini.showFriends ~= false then widgets[#widgets + 1] = self.miniFriends end
-    if mini.showGuild ~= false then widgets[#widgets + 1] = self.miniGuild end
-    if mini.showFPS ~= false then widgets[#widgets + 1] = self.miniFPS end
-    if mini.showLatency ~= false then widgets[#widgets + 1] = self.miniLatency end
+    if mini.showClock ~= false then widgets[#widgets + 1] = bar.miniClock end
+    if mini.showFriends ~= false then widgets[#widgets + 1] = bar.miniFriends end
+    if mini.showGuild ~= false then widgets[#widgets + 1] = bar.miniGuild end
+    if mini.showFPS ~= false then widgets[#widgets + 1] = bar.miniFPS end
+    if mini.showLatency ~= false then widgets[#widgets + 1] = bar.miniLatency end
     local visible, contentWidth = {}, 0
     local resting = type(IsResting) == "function" and IsResting() == true
     for _, widget in ipairs(widgets) do
@@ -512,18 +581,26 @@ function SGB:ApplyMiniBarLayout()
         end
         previous = widget
     end
-    self.miniResting:ClearAllPoints()
-    self.miniResting:SetPoint(
-        "BOTTOMRIGHT", visible[1] or root, "TOPRIGHT",
-        tonumber(mini.restingX) or 2, tonumber(mini.restingY) or -4
-    )
-    self.miniResting:SetShown(mini.showResting ~= false and (resting or self.miniSettingsOpen == true))
-    self.miniHasVisibleWidgets = #visible > 0 or mini.showResting ~= false
-    self.miniRestingState = resting
+    local restingAnchor = visible[1] or root
+    local restingY = (tonumber(mini.restingY) or -4) - 4
+    if restingAnchor == bar.miniClock then
+        local first = REST_GLYPHS[1]
+        local lowestGlyph = restingSize * (.5 + first.y - REST_LIFT - first.height * .42)
+        local textHeight = math.max(tonumber(appearance.clockFontSize) or 14, bar.miniClock.text:GetStringHeight())
+        restingY = math.max(restingY, (textHeight - panelHeight) * .5 + 2 - lowestGlyph)
+    end
+    local overlap = restingAnchor == bar.miniClock and math.max(0, -restingY) or 0
+    bar.miniResting:SetHitRectInsets(0, 0, 0, overlap)
+    bar.miniResting:ClearAllPoints()
+    bar.miniResting:SetPoint("BOTTOMRIGHT", restingAnchor, "TOPRIGHT", tonumber(mini.restingX) or 2, restingY)
+    bar.miniResting:SetShown(mini.showResting ~= false and (resting or bar.miniSettingsOpen == true))
+    bar.miniHasVisibleWidgets = #visible > 0 or mini.showResting ~= false
+    bar.miniRestingState = resting
 end
 
-function SGB:UpdateMiniOnline(kind)
-    if not self.miniBarRoot then return end
+function SGB:UpdateMiniOnline(kind, bar)
+    bar = bar or self
+    if not bar.miniBarRoot then return end
     local mini = MiniProfile()
     local function CountText(value)
         local count = tonumber(value) or 0
@@ -531,26 +608,27 @@ function SGB:UpdateMiniOnline(kind)
         return tostring(count)
     end
     if mini.enabled and mini.showFriends ~= false and (not kind or kind == "friends") then
-        self.miniFriends.badge:SetText(CountText(self:GetFriendCount()))
+        bar.miniFriends.badge:SetText(CountText(self:GetFriendCount()))
     end
     if mini.enabled and mini.showGuild ~= false and (not kind or kind == "guild") then
-        self.miniGuild.badge:SetText(CountText(self:GetGuildCount()))
+        bar.miniGuild.badge:SetText(CountText(self:GetGuildCount()))
     end
 end
 
-function SGB:UpdateMiniBarData()
-    local root, mini = self.miniBarRoot, MiniProfile()
+function SGB:UpdateMiniBarData(bar)
+    bar = bar or self
+    local root, mini = bar.miniBarRoot, MiniProfile()
     if not root or not mini or not mini.enabled then return end
     if mini.showFPS ~= false then
         local fps = CurrentFPS()
-        self.miniFPS.text:SetText(fps and (fps .. Text(" к/с", " FPS")) or Text("— к/с", "— FPS"))
+        bar.miniFPS.text:SetText(fps and (fps .. Text(" к/с", " FPS")) or Text("— к/с", "— FPS"))
     end
     if mini.showLatency ~= false then
         local latency = CurrentLatency()
-        self.miniLatency.text:SetText(latency and (latency .. Text(" мс", " ms")) or Text("— мс", "— ms"))
+        bar.miniLatency.text:SetText(latency and (latency .. Text(" мс", " ms")) or Text("— мс", "— ms"))
     end
     local resting = type(IsResting) == "function" and IsResting() == true
-    if mini.showResting ~= false and resting ~= self.miniRestingState then self:ApplyMiniBarLayout() end
+    if bar == self and mini.showResting ~= false and resting ~= bar.miniRestingState then self:ApplyMiniBarLayout() end
 end
 
 function SGB:RestartMiniBarTicker()
@@ -565,6 +643,59 @@ function SGB:RestartMiniBarTicker()
     self.miniBarTicker = C_Timer.NewTicker(1, function()
         SUI:SafeModuleCall(SGB, "minimap info", SGB.UpdateMiniBarData)
     end)
+end
+
+function SGB:CreateMiniSettingsPreview(parent)
+    local sample = CreateFrame("Frame", nil, parent)
+    sample:SetHeight(128)
+    local background = sample:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    Sintezza_Theme:Tint(background, "SetColorTexture", SUI.SettingsTheme.input, .62)
+    local root = self:CreateSegment(sample)
+    root:SetPoint("CENTER", sample, "CENTER", 0, -10)
+    local bar = { miniBarRoot = root, miniBarVisual = root, miniSettingsOpen = true }
+    bar.miniClock = self:CreateMiniTextWidget(root, "clock", 48)
+    bar.miniFriends = self:CreateMiniSocialButton(root, "FRIENDS")
+    bar.miniGuild = self:CreateMiniSocialButton(root, "GUILD")
+    bar.miniFPS = self:CreateMiniTextWidget(root, "fps", 43)
+    bar.miniLatency = self:CreateMiniTextWidget(root, "latency", 48)
+    bar.miniResting = self:CreateMiniRestingWidget(root)
+    sample.resting = bar.miniResting
+    for _, widget in ipairs({ bar.miniClock, bar.miniFriends, bar.miniGuild, bar.miniFPS, bar.miniLatency, bar.miniResting }) do
+        widget:EnableMouse(false)
+    end
+    local status = SUI.Widgets:Label(sample, "", 11, SUI.SettingsTheme.muted)
+    status:SetPoint("BOTTOM", sample, "BOTTOM", 0, 6)
+
+    local function UpdateData()
+        local mini = MiniProfile()
+        if not mini then return end
+        bar.miniClock.text:SetText(SGB:FormatClock(mini.twentyFourHour ~= false, mini.showSeconds == true))
+        SGB:UpdateMiniOnline(nil, bar)
+        SGB:UpdateMiniBarData(bar)
+    end
+    function sample:Refresh()
+        if not self:IsVisible() then return end
+        local mini = MiniProfile()
+        if not mini then return end
+        SGB:ApplyMiniBarStyle(bar)
+        SGB:ApplyMiniBarLayout(bar)
+        root:SetAlpha(mini.enabled and (mini.hoverAlpha or 1) or .38)
+        local width = self:GetWidth()
+        local fit = width > 20 and math.max(1, width - 22) / math.max(1, root:GetWidth()) or 1
+        root:SetScale(math.min(mini.scale or .9, fit, 72 / math.max(1, root:GetHeight())))
+        status:SetText(not mini.enabled and Text("Панель выключена", "Bar disabled") or "")
+        UpdateData()
+    end
+    sample:SetScript("OnSizeChanged", sample.Refresh)
+    sample:SetScript("OnShow", function(frame)
+        frame:Refresh()
+        if C_Timer and C_Timer.NewTicker then frame.ticker = C_Timer.NewTicker(1, UpdateData) end
+    end)
+    sample:SetScript("OnHide", function(frame)
+        if frame.ticker then frame.ticker:Cancel(); frame.ticker = nil end
+    end)
+    return sample
 end
 
 function SGB:ApplyMiniBar()

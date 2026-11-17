@@ -575,25 +575,25 @@ function SGB:ClockDemand()
         p and p.miniBar and p.miniBar.enabled and p.miniBar.showClock ~= false and self.miniClock ~= nil
 end
 
+function SGB:FormatClock(twentyFourHour, showSeconds)
+    local format = twentyFourHour and (showSeconds and "%H:%M:%S" or "%H:%M")
+        or (showSeconds and "%I:%M:%S %p" or "%I:%M %p")
+    return date(format)
+end
+
 function SGB:UpdateClock()
     local main, miniEnabled = self:ClockDemand()
     if not main and not miniEnabled then return end
     local clock = self.profile.clock
     local appearance = self.profile.appearance
-    local format = clock.twentyFourHour
-        and (appearance.showSeconds and "%H:%M:%S" or "%H:%M")
-        or (appearance.showSeconds and "%I:%M:%S %p" or "%I:%M %p")
     if main then
         self.clockText:SetAlpha(1)
-        self.clockText:SetText(date(format))
+        self.clockText:SetText(self:FormatClock(clock.twentyFourHour, appearance.showSeconds))
     end
     if miniEnabled then
         local mini = type(self.profile.miniBar) == "table" and self.profile.miniBar or {}
-        local miniFormat = mini.twentyFourHour ~= false
-            and (mini.showSeconds == true and "%H:%M:%S" or "%H:%M")
-            or (mini.showSeconds == true and "%I:%M:%S %p" or "%I:%M %p")
         self.miniClock.text:SetAlpha(1)
-        self.miniClock.text:SetText(date(miniFormat))
+        self.miniClock.text:SetText(self:FormatClock(mini.twentyFourHour ~= false, mini.showSeconds == true))
     end
 end
 
