@@ -560,7 +560,6 @@ function M:RegisterEvents()
     SUI:RegisterModuleEvent(self, "PLAYER_TARGET_CHANGED")
     SUI:RegisterModuleEvent(self, "PLAYER_FOCUS_CHANGED")
     SUI:RegisterModuleEvent(self, "UNIT_FLAGS")
-    SUI:RegisterModuleEvent(self, "UNIT_AURA")
     SUI:RegisterModuleEvent(self, "SPELLS_CHANGED")
     SUI:RegisterModuleEvent(self, "PLAYER_SPECIALIZATION_CHANGED")
     SUI:RegisterModuleEvent(self, "TRAIT_CONFIG_UPDATED")
@@ -606,10 +605,6 @@ function M:OnEvent(event, unit)
         self.activeUnits[unit] = true
         if not self:AttachPlate(unit, true) then self:QueueAttach(unit) end
     elseif event == "NAME_PLATE_UNIT_REMOVED" then self:DetachPlate(unit)
-    elseif event == "UNIT_AURA" then
-        if self.AuraRules:SupportsTextColoring() and not IsSecret(unit) and type(unit) == "string" then
-            self.AuraRules:QueueTextAuraRefresh(unit)
-        end
     elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED" then
         self:ResyncSwappedBars()
         if self.AuraRules then self.AuraRules:RefreshAll(false) end

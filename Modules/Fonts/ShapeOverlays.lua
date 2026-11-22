@@ -13,6 +13,9 @@ local plateRetryDelays = { .12, .16, .36, 2.8 }
 local plateHooks = setmetatable({}, { __mode = "k" })
 local shownBuffs = setmetatable({}, { __mode = "k" })
 local glowHooks = setmetatable({}, { __mode = "k" })
+local playerDispelMasks = setmetatable({}, { __mode = "k" })
+local dispelStyleHooks = setmetatable({}, { __mode = "k" })
+local dispelKitHooks = setmetatable({}, { __mode = "k" })
 
 local function Public(v)
     return type(v) == "number" and not (issecretvalue and issecretvalue(v))
@@ -47,7 +50,7 @@ local function ClearDamageMask(state)
     state.frame, state.radius, state.corners, state.span, state.boundMask, state.nativeMask = nil, nil, nil, nil, nil, nil
 end
 
-local function SetDamageMaskArt(mask, radius, corners)
+local function SetRoundedMaskArt(mask, radius, corners)
     local suffix = corners == 15 and "" or "-" .. corners
     mask:SetTexture(roundedArt .. radius .. suffix .. ".tga", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     mask:SetTextureSliceMargins(radius, radius, radius, radius)
@@ -82,7 +85,7 @@ function M:ApplyDamageMarkerShape()
     -- Clip the native marker to the same stationary silhouette as its host.
     -- The moving damage span keeps its own fill, outline, and animations.
     local mask = state.mask
-    SetDamageMaskArt(mask, radius, corners)
+    SetRoundedMaskArt(mask, radius, corners)
     mask:ClearAllPoints()
     mask:SetAllPoints(frame)
     mask:Show()
@@ -155,6 +158,85 @@ local function NativeHealthMask(texture)
         if not path then readable = false end
     end
     return nil, nil, nil, readable
+end
+
+local function PlayerHealthMask(health)
+    local background, radius, corners, readable = NativeHealthMask(health.bg)
+    if background then return background, radius, corners, true end
+    local ok, fill = pcall(health.GetStatusBarTexture, health)
+    if ok and not (issecretvalue and issecretvalue(fill)) then
+        local native, r, c, fillReadable = NativeHealthMask(fill)
+        return native, r, c, fillReadable or readable
+    end
+    return nil, nil, nil, readable
+end
+
+local function FitPlayerDispelMask(texture, state, native, radius, corners)
+    local mask = state.mask
+    local attached = state.attached and HasMask(texture, mask) ~= false
+    if attached and state.native == native and state.radius == radius and state.corners == corners then return end
+    if attached then texture:RemoveMaskTexture(mask) end
+    state.attached = nil
+    if not native then return end
+    SetRoundedMaskArt(mask, radius, corners)
+    mask:ClearAllPoints()
+    mask:SetAllPoints(native)
+    state.native, state.radius, state.corners = native, radius, corners
+    state.attached = AddMask(texture, mask)
+end
+
+local function InstallPlayerDispelMasks(eui)
+    local unit = eui and eui._ModuleNS and eui._ModuleNS.EllesmereUIUnitFrames
+    local kit = unit and eui.AuraKit
+    if not (kit and type(kit.styles) == "table" and type(kit.MakeInitializer) == "function"
+        and type(kit.RestyleSoon) == "function" and type(eui.RoundCorners) == "function") or dispelKitHooks[kit] then return end
+    dispelKitHooks[kit] = true
+
+    local function HookStyle(key)
+        if type(key) ~= "string" or not key:match("^uf:player:dispelfill:") then return end
+        local style = kit.styles[key]
+        if not (style and style.fillSet and type(style.applyExtra) == "function") or dispelStyleHooks[style] then return end
+        dispelStyleHooks[style] = true
+        hooksecurefunc(style, "applyExtra", function(button, data, currentStyle)
+            local texture, health = data.overlay, currentStyle.healthFrame
+            if not (texture and health and SUI:IntegrationEnabled("frames")) then return end
+            -- Capture the actual gradient while AuraKit is styling its slot. The
+            -- mask lives with that texture even when the button becomes restricted.
+            SUI:SafeModuleCall(M, "player dispel overlay mask", function()
+                local state = playerDispelMasks[texture]
+                if not state then
+                    if kit.CanTouchButton and not kit.CanTouchButton(button) then
+                        if kit.DeferRestyle then kit.DeferRestyle(key) end
+                        return
+                    end
+                    if not button.CreateMaskTexture then return end
+                    state = { mask = button:CreateMaskTexture(), health = health }
+                    playerDispelMasks[texture] = state
+                end
+                local native, radius, corners, readable = PlayerHealthMask(health)
+                if readable or native then FitPlayerDispelMask(texture, state, native, radius, corners) end
+            end)
+        end)
+    end
+
+    hooksecurefunc(kit, "MakeInitializer", HookStyle)
+    hooksecurefunc(kit, "RestyleSoon", HookStyle)
+    hooksecurefunc(eui, "RoundCorners", function(owner)
+        if not (owner and owner._euiBaseUnit == "player" and owner.Health) then return end
+        local health = owner.Health
+        local native, radius, corners, readable = PlayerHealthMask(health)
+        if not (native or readable) then return end
+        for texture, state in pairs(playerDispelMasks) do
+            if state.health == health then
+                SUI:SafeModuleCall(M, "player dispel overlay shape", function()
+                    FitPlayerDispelMask(texture, state, native, radius, corners)
+                end)
+            end
+        end
+    end)
+    for key in pairs(kit.styles) do
+        if type(key) == "string" and key:match("^uf:player:dispelfill:") then kit.RestyleSoon(key) end
+    end
 end
 
 function M:HasNativeNameplateMask(texture)
@@ -238,7 +320,7 @@ local function PrepareForecastMask(state, span, radius)
     local mask = state.forecastMask or state.bar:CreateMaskTexture()
     state.forecastMask = mask
     state.forecastMasked = state.forecastMasked or {}
-    SetDamageMaskArt(mask, radius, 15)
+    SetRoundedMaskArt(mask, radius, 15)
     mask:ClearAllPoints()
     -- Anchor to the prediction's own fill. The client shrinks the sliced
     -- corners on a narrow prediction; Lua never needs the span's dimensions.
@@ -294,7 +376,7 @@ local function SyncNameplateMarker(plate, ns, state)
     -- Copy the health silhouette onto a mask owned by the DIDA marker.
     -- Anchors track the target's live scale, but the mask stays in the
     -- marker's render group rather than sharing a mask across plate layers.
-    SetDamageMaskArt(healthMask, radius, corners)
+    SetRoundedMaskArt(healthMask, radius, corners)
     healthMask:ClearAllPoints()
     if native then
         healthMask:SetAllPoints(native)
@@ -550,6 +632,7 @@ function M:RefreshShapeOverlays()
     if not hooksecurefunc then return end
     local bar = _G.DoesItDieAdvancedRemaining
     local eui = _G.EllesmereUI
+    if SUI:IntegrationEnabled("frames") then InstallPlayerDispelMasks(eui) end
     if SUI:IntegrationEnabled("dida") and not marker and bar and eui and Enum
         and Enum.UITextureSliceMode and Enum.UITextureSliceMode.Stretched then
         marker = BindDamageMarker(bar)

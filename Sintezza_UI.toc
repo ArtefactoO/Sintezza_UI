@@ -4,12 +4,12 @@
 ## Notes-ruRU: Панели, оформление интерфейса и инструменты для рейдов.
 ## Author: Sintezza
 ## X-License: MIT
-## Version: 1.6.1
+## Version: 1.6.2
 ## SavedVariables: Sintezza_UIDB
 ## LoadSavedVariablesFirst: 1
 ## Dependencies: Sintezza_Theme
 ## OptionalDeps: EllesmereUI, EllesmereUIActionBars, EllesmereUICooldownManager, EllesmereUINameplates, DandersFrames, LibSharedMedia-3.0, SharedMediaAdditionalFonts, EllesmereUIUnitFrames, EllesmereUIResourceBars, DoesItDieAdvanced, EllesmereUIAuraBuffReminders, EllesmereUIRaidFrames, Sintezza_UI_LocalFonts, FontMagic, Sintezza_Perf
-## IconTexture: Interface\AddOns\Sintezza_Theme\Media\Icons\Sintezza_UI
+## IconTexture: Interface\AddOns\Sintezza_UI\Media\Icon
 
 Locales.lua
 Core.lua

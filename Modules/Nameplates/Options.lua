@@ -343,11 +343,8 @@ local function BuildAuraSettings(page)
         local target, label = entry[1], entry[2]
         local detail
         if target == "LABELS" then
-            detail = Text("Также окрашивает цель моба и прогресс задания. Для окраски текста нужны доступные данные о дебаффе.",
-                "Also colors the enemy's target and quest progress. Text coloring requires readable debuff data.")
-        elseif target == "TEXT" then
-            detail = Text("Для окраски текста нужны доступные данные о дебаффе.",
-                "Text coloring requires readable debuff data.")
+            detail = Text("Также окрашивает цель моба и прогресс задания.",
+                "Also colors the enemy's target and quest progress.")
         end
         local toggle = PlainToggle(targetGroup, label, function() return selected and A:HasColorTarget(selected, target) end,
             function(value)

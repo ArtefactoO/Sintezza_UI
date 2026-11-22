@@ -1,5 +1,5 @@
 local _, SUI = ...
-local M = SUI:RegisterModule("eventAlerts", {})
+local M = SUI:RegisterModule("eventAlerts", { supportsHealthInstanceScope = true })
 local isSecret = issecretvalue
 
 local UNIT_EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_THREAT_SITUATION_UPDATE" }
@@ -63,6 +63,10 @@ local function Play(kind, detail)
 end
 
 function M:SampleHealth(silent)
+    if self.healthInstanceOnly and not self.inDungeon then
+        self.healthKnown, self.healthArmed = nil, nil
+        return
+    end
     local percent = self.healthEnabled and self.alive and HealthPercent()
     if not percent then
         self.healthKnown = nil
@@ -71,7 +75,7 @@ function M:SampleHealth(silent)
     if percent >= self.rearm then
         self.healthArmed = true
     elseif percent <= self.threshold then
-        if self.healthKnown and self.healthArmed and not silent then
+        if self.healthKnown and self.healthArmed and not silent and (not self.healthInstanceOnly or InDungeonOrRaid()) then
             Play("healthAlert", math.max(1, math.floor(percent + .5)))
         end
         self.healthArmed = false
@@ -105,7 +109,8 @@ function M:OnUnitEvent(event, unit)
 end
 
 function M:UpdateUnitEvents()
-    local health = self.alive and self.healthEnabled and type(UnitHealth) == "function" and type(UnitHealthMax) == "function"
+    local health = self.alive and self.healthEnabled and (not self.healthInstanceOnly or self.inDungeon)
+        and type(UnitHealth) == "function" and type(UnitHealthMax) == "function"
     local aggro = self.alive and self.aggroEnabled and self.inCombat and self.inDungeon and type(UnitThreatSituation) == "function"
     if not self.frame and (health or aggro) then
         local frame = CreateFrame("Frame")
@@ -140,16 +145,19 @@ function M:OnProfileChanged()
     health = type(health) == "table" and health or nil
     aggro = type(aggro) == "table" and aggro or nil
     local healthEnabled = health ~= nil and health.enabled == true
+    local healthInstanceOnly = health ~= nil and health.instanceOnly == true
     local aggroEnabled = aggro ~= nil and aggro.enabled == true
     local threshold = Setting(health and health.threshold, 25, 5, 90)
     local rearm = math.max(threshold + 1, Setting(health and health.rearm, 35, 6, 100))
     local changed = profile ~= self.profile
     local resetHealth = changed or healthEnabled ~= self.healthEnabled or threshold ~= self.threshold or rearm ~= self.rearm
+        or healthInstanceOnly ~= self.healthInstanceOnly
     local resetAggro = changed or aggroEnabled ~= self.aggroEnabled
     if not (resetHealth or resetAggro) then return end
 
     self.profile = profile
     self.healthEnabled, self.aggroEnabled = healthEnabled, aggroEnabled
+    self.healthInstanceOnly = healthInstanceOnly
     self.threshold, self.rearm = threshold, rearm
     self.alive = PlayerAlive()
     self.inCombat, self.inDungeon = PlayerInCombat(), InDungeonOrRaid()

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.2
+
+- Fixed debuff rules skipping names and health numbers when aura data is restricted, and applied spell filters when creating health bar and border overlays.
+- Clipped the EllesmereUI player frame's dispel overlay to the rounded health bar.
+- Added a dungeons-and-raids-only option for low-health signals, shared with Sintezza Notifications.
+- Ship the Sintezza UI logo with Sintezza UI and use it in the addon list, settings, minimap button, and raid check.
+
 ## 1.6.1
 
 - Fixed the Squint icon appearing over the selected stealth effect on the first alert after login or reload.

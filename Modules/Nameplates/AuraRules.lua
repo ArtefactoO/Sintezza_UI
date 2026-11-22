@@ -41,7 +41,6 @@ end
 -- back to ten pooled buttons for the entire session.
 local function SlotsAvailable(container)
     local present = type(container.AddAuraSlot) == "function"
-        and type(container.SetAuraSlotCandidateFilters) == "function"
     A.slotApiPresent = present
     return present
 end
@@ -366,6 +365,16 @@ local function RuleBaseLevel(rig)
     return level + BASE_LEVEL_OFFSET
 end
 
+local function SpellSignature(condition)
+    if not condition then return "" end
+    local ids = M.AuraCatalog and M.AuraCatalog:RelatedSpellIDs(condition.spellID)
+    if not ids then return condition.spellID end
+    local sorted = {}
+    for id in pairs(ids) do sorted[#sorted + 1] = id end
+    table.sort(sorted)
+    return condition.spellID .. "=" .. table.concat(sorted, ",")
+end
+
 function A:ConfigurationSignature(rules)
     local parts = {}
     local radius, corners = M:GetNativePlateRounding()
@@ -379,8 +388,7 @@ function A:ConfigurationSignature(rules)
             self:HasColorTarget(rule, "BORDER") and 1 or 0,
             self:HasColorTarget(rule, "TEXT") and 1 or 0,
             self:HasColorTarget(rule, "LABELS") and 1 or 0,
-            conditions[1] and conditions[1].spellID or 0,
-            conditions[2] and conditions[2].spellID or 0,
+            SpellSignature(conditions[1]), SpellSignature(conditions[2]),
             rule.showOnTarget == false and 0 or 1,
             rule.showOnFocus == false and 0 or 1,
             color.r or color[1] or 1, color.g or color[2] or 1,
@@ -439,7 +447,6 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
     local borderOnly = border and not fill
     local text = self:SupportsTextColoring() and self:HasColorTarget(rule, "TEXT")
     local labels = self:SupportsTextColoring() and self:HasColorTarget(rule, "LABELS")
-    rig.hasTextRules = rig.hasTextRules or text or labels
     local base = RuleBaseLevel(rig)
     if not base then error("health bar frame level unavailable") end
     local level = base + (borderOnly and 1 or 0)
@@ -511,14 +518,20 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
             return
         end
         container:SetEnabled(false)
+        container:SetSize(1, 1)
         pcall(container.SetAllPoints, container, healthBar)
         pcall(container.SetFrameLevel, container, record.level)
         local key = "SUI" .. tostring(rank) .. "D" .. tostring(depth)
         local useSlot = SlotsAvailable(container)
         local register = useSlot and container.AddAuraSlot or container.AddAuraGroup
+        record.containers[#record.containers + 1] = container
         local okRegister, registerError = pcall(register, container, key, "HARMFUL|PLAYER", {
+            candidateFilters = { includeSpellIDs = record.conditionIDs[depth] },
+            maxFrameCount = not useSlot and 1 or nil,
+            layout = not useSlot and { elementWidth = 1, elementHeight = 1 } or nil,
             initializeFrame = function(button)
                 pcall(button.SetFrameLevel, button, record.level)
+                button:EnableMouse(false)
                 if depth < #conditions then AttachContainer(button, depth + 1)
                 else
                     if fill then AddVisual(button, "HEALTH") end
@@ -532,30 +545,22 @@ function A:BuildRule(rig, healthBar, rule, rank, insets)
             container:Hide()
             return
         end
-        local ids = record.conditionIDs[depth]
-        local okFilter, filterError
-        if useSlot then
-            okFilter, filterError = pcall(container.SetAuraSlotCandidateFilters, container, key, { includeSpellIDs = ids })
-            record.slotContainers = record.slotContainers + 1
-        else
-            okFilter, filterError = pcall(container.SetAuraGroupCandidateFilters, container, key, { includeSpellIDs = ids })
-            pcall(container.SetAuraGroupMaxFrameCount, container, key, 1)
-            record.groupContainers = record.groupContainers + 1
-        end
-        if not okFilter then
-            record.failures = record.failures + 1
-            record.error = record.error or tostring(filterError)
-        end
-        record.containers[#record.containers + 1] = container
+        if useSlot then record.slotContainers = record.slotContainers + 1
+        else record.groupContainers = record.groupContainers + 1 end
         BindContainer(record, container, self:DesiredUnit(rig.unit, rig.tapDenied, rule), true)
     end
 
     if fill or border then AttachContainer(healthBar, 1) end
+    if text or labels then
+        local ok, err = pcall(self.BuildTextSensors, self, record, healthBar)
+        if ok then rig.hasTextRules = true
+        else record.textError = IsSecret(err) and "secret error" or tostring(err) end
+    end
     return record
 end
 
 function A:SetRigUnit(rig, unit, force)
-    if rig.unit ~= unit and rig.hasTextRules then self:RestoreTextColors(rig) end
+    local relayout = rig.unit ~= unit or rig.textPlate ~= rig.plate
     rig.unit = unit
     rig.tapDenied = M:IsTapColorPriority(unit)
     self:RestackRig(rig)
@@ -568,11 +573,18 @@ function A:SetRigUnit(rig, unit, force)
             if unit then container:Show() end
             BindContainer(record, container, bind, force)
         end
+        for _, sensor in ipairs(record.textSensors or {}) do
+            BindContainer(record, sensor, bind, force)
+        end
         for _, host in ipairs(record.visualHosts or {}) do
             pcall(host.SetFrameLevel, host, record.level + (record.visualHostOffsets[host] or 0))
         end
     end
-    if rig.hasTextRules then self:RefreshTextColors(rig) end
+    if rig.hasTextRules then
+        if unit and rig.plate then self:HookTextOwner(rig.plate) end
+        self:RefreshTextLayers(rig, nil, relayout)
+        rig.textPlate = rig.plate
+    end
 end
 
 function A:RetireRig(rig)
@@ -589,6 +601,7 @@ function A:IsRigSound(rig)
     if not rig or rig.builtInCombat then return false end
     for _, record in ipairs(rig.rules or {}) do
         if (record.failures or 0) > 0 then return false end
+        if record.textError then return false end
     end
     return true
 end
@@ -857,7 +870,7 @@ function A:ApplyRuleAppearance(rule)
                 end
             end
         end
-        if rig.hasTextRules then self:PaintTextColors(rig) end
+        if rig.hasTextRules then self:RefreshTextLayers(rig, nil, true) end
     end
 end
 
@@ -880,9 +893,13 @@ function A:GetDiagnostics()
         if not self:IsRigSound(rig) then result.suspectRigs = result.suspectRigs + 1 end
         for _, record in ipairs(rig.rules or {}) do
             result.rules = result.rules + 1
-            result.containers = result.containers + #(record.containers or {})
+            result.containers = result.containers + #record.containers + #(record.textSensors or {})
             result.visuals = result.visuals + #(record.visuals or {})
             result.failures = result.failures + (record.failures or 0)
+            if record.textError then
+                result.failures = result.failures + 1
+                result.lastBuildError = result.lastBuildError or record.textError
+            end
             result.slots = result.slots + (record.slotContainers or 0)
             result.groups = result.groups + (record.groupContainers or 0)
             if record.unsupported then result.unsupported = result.unsupported + 1 end

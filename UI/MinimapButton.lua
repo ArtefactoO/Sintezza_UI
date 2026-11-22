@@ -4,7 +4,7 @@ local Text = SUI.Text
 local MinimapButton = {}
 SUI.MinimapButton = MinimapButton
 
-local ICON = Sintezza_Theme.icons.Sintezza_UI
+local ICON = SUI.icon
 local DEFAULT_ANGLE = 225
 local BUTTON_SIZE = 31
 

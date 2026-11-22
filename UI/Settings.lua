@@ -546,7 +546,7 @@ function UI:BuildWindow()
     UISpecialFrames[#UISpecialFrames + 1] = "Sintezza_UIWindow"
 
     local header = W:WindowHeader(window, {
-        title = SUI.title, version = SUI.version, icon = Sintezza_Theme.icons.Sintezza_UI,
+        title = SUI.title, version = SUI.version, icon = SUI.icon,
     })
     local close = header.close
     self:BuildSearch(header)
@@ -601,7 +601,7 @@ end
 function UI:RegisterBlizzardCategory()
     if self.category then return end
     self.category = Sintezza_Theme:RegisterLauncherPage({
-        title = "Sintezza UI", icon = Sintezza_Theme.icons.Sintezza_UI,
+        title = "Sintezza UI", icon = SUI.icon,
         buttonLabel = Text("Открыть настройки", "Open settings"),
         open = function() self:Show("dashboard") end,
         appearance = T,

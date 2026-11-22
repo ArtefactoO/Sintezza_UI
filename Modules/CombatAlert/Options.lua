@@ -315,6 +315,11 @@ local function BuildExtraAlertTab(page, tab)
             RefreshEventAlerts()
         end)
     if health then
+        B:AddRow(page, trigger, W:Toggle(trigger, Text("Только в подземельях и рейдах", "Dungeons and raids only"),
+            function() return Options().instanceOnly == true end, function(value)
+                Options().instanceOnly = value or nil
+                RefreshEventAlerts()
+            end))
         B:AddRow(page, trigger, W:SliderRow(trigger, Text("Порог здоровья", "Health threshold"), 5, 90, 1,
             function() return Options().threshold end, function(value)
                 local options = Options()
@@ -323,13 +328,19 @@ local function BuildExtraAlertTab(page, tab)
                 RefreshEventAlerts()
                 page:Refresh()
             end, "%"))
-        B:AddRow(page, trigger, W:SliderRow(trigger, Text("Уровень восстановления", "Rearm at"), 6, 100, 1,
+        local rearm = W:SliderRow(trigger, Text("Уровень восстановления", "Rearm at"), Options().threshold + 1, 100, 1,
             function() return Options().rearm end, function(value)
                 local options = Options()
                 options.rearm = math.max(value, options.threshold + 1)
                 RefreshEventAlerts()
                 page:Refresh()
-            end, "%"))
+            end, "%")
+        local refresh = rearm.Refresh
+        function rearm:Refresh()
+            self:SetRange(Options().threshold + 1, 100)
+            refresh(self)
+        end
+        B:AddRow(page, trigger, rearm)
     end
     B:FinishCard(page, tab, trigger)
 

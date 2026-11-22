@@ -324,7 +324,7 @@ function D:ShowReport()
         T:WindowSurface(frame)
 
         W:WindowHeader(frame, {
-            icon = Sintezza_Theme.icons.Sintezza_UI,
+            icon = SUI.icon,
             title = SUI.Text("Диагностический отчет", "Diagnostic report"),
             subtitle = SUI.Text("Ctrl+A, Ctrl+C — скопировать", "Ctrl+A, Ctrl+C to copy"),
         })

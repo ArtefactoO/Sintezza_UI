@@ -213,6 +213,12 @@ function C:RelatedSpellIDs(spellID)
     if self.relatedCache[spellID] then return self.relatedCache[spellID] end
 
     local result = { [spellID] = true }
+    if SUI.isForever and C_Spell and C_Spell.GetSpellIDForSpellIdentifier then
+        local ok, resolved = pcall(C_Spell.GetSpellIDForSpellIdentifier, self:SpellName(spellID))
+        if ok and not IsSecret(resolved) and type(resolved) == "number" and resolved > 0 then
+            result[resolved] = true
+        end
+    end
     if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
         for _, categoryName in ipairs(ALL_CATEGORIES) do
             for _, cooldownID in ipairs(CategoryEntries(categoryName)) do
