@@ -1,4 +1,4 @@
-## Interface: 120100, 120105, 16001
+## Interface: 16001
 ## Title: Sintezza UI
 ## Notes: Unified local interface modules, panels, raid tools and compatibility fixes.
 ## Notes-ruRU: Панели, оформление интерфейса и инструменты для рейдов.
