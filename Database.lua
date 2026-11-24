@@ -1,7 +1,7 @@
 local _, SUI = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_SCHEMA = 72
+local CURRENT_SCHEMA = 74
 SUI.AuraRuleDefaults = { colorTarget = "HEALTH", borderThickness = 1 }
 SUI.NameplateThreatBorderDefault = 2
 local function color(r, g, b, a) return { r, g, b, a } end
@@ -171,7 +171,7 @@ local defaults = {
                 point = "CENTER", relativePoint = "CENTER", x = 0, y = 120, scale = 1, locked = false,
             },
         },
-        combatFont = { enabled = false, font = "DEFAULT", useInAlerts = true },
+        combatFont = { enabled = false, font = "DEFAULT", useInAlerts = true, hideIncomingHealing = false },
         fontCompatibility = {
             enabled = true,
             absorbInset = true,
@@ -1075,6 +1075,15 @@ local function RunMigrations(db)
             local plates = type(modules) == "table" and modules.nameplates
             local auras = type(plates) == "table" and plates.auraRules
             if type(auras) == "table" then auras.pandemic = nil end
+        end
+    end
+    if previous < 73 then
+        for _, profile in pairs(type(db.profiles) == "table" and db.profiles or {}) do
+            local modules = type(profile) == "table" and profile.modules
+            local font = type(modules) == "table" and modules.combatFont
+            if type(font) == "table" and font.hideIncomingHealing == nil then
+                font.hideIncomingHealing = defaults.modules.combatFont.hideIncomingHealing
+            end
         end
     end
     db.schemaVersion = math.max(previous, CURRENT_SCHEMA)

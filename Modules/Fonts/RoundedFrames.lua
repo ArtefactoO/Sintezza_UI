@@ -6,6 +6,13 @@ local dandersThinBorders = setmetatable({}, { __mode = "k" })
 local hookOwners = setmetatable({}, { __mode = "k" })
 local seamLayers = setmetatable({}, { __mode = "k" })
 local experienceRounding = setmetatable({}, { __mode = "k" })
+local petFramePools = { "petFrames", "partyPetFrames", "raidPetFrames", "arenaPetFrames", "testPetFrames", "testRaidPetFrames" }
+local prayerRanks = { [401877] = true, [1240848] = true, [1240849] = true }
+local petByOwner = setmetatable({}, { __mode = "kv" })
+local petPrayerBorders = setmetatable({}, { __mode = "k" })
+local queuedPetPrayerBorders = setmetatable({}, { __mode = "k" })
+local auraGlowHosts = setmetatable({}, { __mode = "kv" })
+local auraGlows = setmetatable({}, { __mode = "k" })
 
 local function Public(value)
     return (not issecretvalue or not issecretvalue(value)) and (not canaccessvalue or canaccessvalue(value))
@@ -263,6 +270,119 @@ local function SuppressDandersArtwork(state, native)
     return true
 end
 
+local function RestoreAuraGlow(state)
+    if not state then return end
+    RestoreDandersArtwork(state)
+    pcall(state.round, state.layer, 0)
+    local eui = _G.EllesmereUI
+    if eui and eui.HideBorderStyle then eui.HideBorderStyle(state.layer) end
+    state.layer:Hide()
+end
+
+local function IsSoftAuraGlow(spec)
+    return Public(spec) and type(spec) == "table" and (not canaccesstable or canaccesstable(spec))
+        and Public(spec.enabled) and Public(spec.style) and Public(spec.texture)
+        and spec.enabled ~= false and spec.style == "TEXTURE" and spec.texture == M.SoftRoundedBorderKey
+end
+
+function M:ApplyDandersAuraGlow(frame, native, spec)
+    if InCombatLockdown and InCombatLockdown() then self.pendingRoundedFrames = true; return end
+    if not Accessible(native) then return end
+    local state = auraGlows[native]
+    local radius = self:GetDandersShapeRadius(frame)
+    local eui = _G.EllesmereUI
+    if not (radius > 0 and SUI:IntegrationEnabled("danders") and IsSoftAuraGlow(spec)
+        and not spec.animation
+        and eui and eui._bdBorderData and eui.PP and eui.RoundCorners and eui.ApplyBorderStyle) then
+        RestoreAuraGlow(state)
+        return
+    end
+    local size, inset, x, y = spec.size, spec.inset, spec.offsetX, spec.offsetY
+    local mult, level = eui.PP.mult, native:GetFrameLevel()
+    local color = spec.color
+    if not (PublicNumber(size) and size > 0 and PublicNumber(inset) and PublicNumber(x) and PublicNumber(y)
+        and PublicNumber(mult) and mult > 0 and PublicNumber(level) and Public(color) and type(color) == "table"
+        and (not canaccesstable or canaccesstable(color))) then
+        RestoreAuraGlow(state)
+        return
+    end
+    local r, g, b, a = ColorChannel(color, "r", 1, 0), ColorChannel(color, "g", 2, 0),
+        ColorChannel(color, "b", 3, 0), ColorChannel(color, "a", 4, 1)
+    local w, h = frame:GetSize()
+    if not (r and g and b and a and PublicNumber(w) and PublicNumber(h) and math.min(w, h) > 2) then
+        RestoreAuraGlow(state)
+        return
+    end
+    -- The native texture puts the center of its glow halfway into each edge.
+    local center = inset + size / 2
+    local base = math.min(radius, math.floor((math.min(w, h) - 1) / 2))
+    local curve = math.max(1, base - center)
+    if not state then
+        local layer = CreateFrame("Frame", nil, native)
+        layer:EnableMouse(false)
+        state = { layer = layer, artwork = {}, options = { border = layer, style = "glow", roots = {} } }
+        auraGlows[native] = state
+    end
+    local layer = state.layer
+    layer:ClearAllPoints()
+    layer:SetPoint("TOPLEFT", frame, "TOPLEFT", x + center, y - center)
+    layer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", x - center, y + center)
+    layer:SetFrameLevel(level)
+    state.round = eui.RoundCorners
+    local ok = pcall(function()
+        eui.ApplyBorderStyle(layer, 1, r, g, b, a, "glow", 0, 0, 0, 0, nil, nil, false, size / mult)
+        state.round(layer, curve, state.options)
+        local bd = eui._bdBorderData[layer]
+        if not (bd and bd:IsShown() and bd:GetAlpha() == 0 and SuppressDandersArtwork(state, native)) then
+            error("rounded aura glow unavailable")
+        end
+        self:ApplyDandersBorderBlend(layer, spec.blendMode or "BLEND")
+    end)
+    if not ok then RestoreAuraGlow(state) end
+end
+
+function M:SyncDandersAuraGlowHandle(frame, handle)
+    if InCombatLockdown and InCombatLockdown() then self.pendingRoundedFrames = true; return end
+    if not handle or handle._destroyed or not handle.GetAlphaHost or not handle.GetOverlaySlots then return end
+    local cfg = handle.config
+    local border = cfg and cfg.mode == "overlay" and cfg.style and cfg.style.border
+    if not border then return end
+    local host = handle:GetAlphaHost()
+    if not Accessible(host) then return end
+    if not (auraGlowHosts[host] or IsSoftAuraGlow(border.spec) or IsSoftAuraGlow(border.pandemicSpec)) then return end
+    auraGlowHosts[host] = frame
+    for _, slot in pairs(handle:GetOverlaySlots() or {}) do
+        if Accessible(slot) then
+            self:ApplyDandersAuraGlow(frame, slot.dfBorder, border.spec)
+            self:ApplyDandersAuraGlow(frame, slot.dfBorderPandemic, border.pandemicSpec)
+        end
+    end
+end
+
+function M:RefreshDandersAuraGlows(frame)
+    if not Accessible(frame) then return end
+    local store = frame.dfADFactory
+    for _, effect in pairs(store and store.border or {}) do
+        self:SyncDandersAuraGlowHandle(frame, effect.handle)
+    end
+end
+
+local function OnAuraBorderApplied(self, native, spec)
+    if InCombatLockdown and InCombatLockdown() then self.pendingRoundedFrames = true; return end
+    -- A paced build can create the slot after the factory has returned its handle.
+    local parent = native
+    for _ = 1, 10 do
+        if not Accessible(parent) then break end
+        local frame = auraGlowHosts[parent]
+        if Accessible(frame) then
+            self:ApplyDandersAuraGlow(frame, native, spec)
+            return
+        end
+        parent = parent:GetParent()
+    end
+    RestoreAuraGlow(auraGlows[native])
+end
+
 local function ReleaseThinDandersBorder(frame, state, repainted)
     if not state or not state.round then return end
     state.layer:Hide()
@@ -321,18 +441,24 @@ local function ApplyThinDandersBorder(frame, state, db, thinPreset, repainted, k
         ReleaseThinDandersBorder(frame, state, repainted)
         return
     end
-    local unit = frame.unit
-    if not Public(unit) then ReleaseThinDandersBorder(frame, state, repainted); return end
-    local spec = provider:BuildSpec(db, "frame", { unit = unit, frame = frame })
+    local pet = frame.isPetFrame
+    local spec
+    if pet then
+        spec = provider:BuildSpec(db, "pet")
+    else
+        local unit = frame.unit
+        if not Public(unit) then ReleaseThinDandersBorder(frame, state, repainted); return end
+        spec = provider:BuildSpec(db, "frame", { unit = unit, frame = frame })
+    end
     local ok, blend, aligned = M:ApplyDandersSolidBorder(layer, native, spec, thinPreset)
     if not ok then ReleaseThinDandersBorder(frame, state, repainted); return end
     state.blendMode, state.seamAligned = blend, aligned
     opts.rect = layer
     -- Full-width power bars on the frame share its silhouette. Bars moved
     -- away from the frame still get their own small rounded ends.
-    local power = frame.dfPowerBar
-    local attachedPower = power and db.resourceBarMatchWidth
-        and (db.resourceBarX or 0) == 0 and (db.resourceBarY or 0) == 0
+    local power = pet and frame.powerBar or frame.dfPowerBar
+    local attachedPower = power and (pet or (db.resourceBarMatchWidth
+        and (db.resourceBarX or 0) == 0 and (db.resourceBarY or 0) == 0))
     opts.roots[1] = attachedPower and power or nil
     opts.roots[2] = frame.healthBar
     opts.roots[3] = frame.missingHealthBar
@@ -386,37 +512,150 @@ function M:ApplyDandersRoundedFrame(frame, db, repainted)
     local key = raid and "dandersRaid" or "dandersParty"
     local mode = self:GetFrameShapeMode(false, key)
     local thinPreset = preset == self.ThinRoundedBorderKey
-    local forceSolid = mode == "ROUND" and db and (db.frameShowBorder == false
-        or (not db.frameBorderGradientEnabled and (not db.frameBorderStyle or db.frameBorderStyle == "SOLID")))
-    local thin = (thinPreset or forceSolid) and self:CanDrawThinRoundedBorder()
+    local pet = frame.isPetFrame
+    local rounded
+    if pet then
+        rounded = mode ~= "SQUARE" and (thinPreset or mode == "ROUND") and db
+            and (db.petShowBorder == false or (not db.petBorderGradientEnabled
+                and (db.petBorderStyle or "SOLID") == "SOLID"))
+    else
+        local forceSolid = mode == "ROUND" and db and (db.frameShowBorder == false
+            or (not db.frameBorderGradientEnabled and (not db.frameBorderStyle or db.frameBorderStyle == "SOLID")))
+        rounded = thinPreset or forceSolid
+    end
+    local thin = rounded and self:CanDrawThinRoundedBorder()
     local thinState = dandersThinBorders[frame]
     if not (thin or (thinState and thinState.round)) then return end
     if thin then
-        ApplyThinDandersBorder(frame, thinState, db, thinPreset, repainted, key)
+        ApplyThinDandersBorder(frame, thinState, db, thinPreset and not pet, repainted, key)
+    else
+        ReleaseThinDandersBorder(frame, thinState, repainted)
+    end
+    self:RefreshDandersAuraGlows(frame)
+end
+
+local function IsPrayerFilter(ids)
+    if not Public(ids) or type(ids) ~= "table" or (canaccesstable and not canaccesstable(ids)) then return false end
+    local prayer
+    for spellID, included in pairs(ids) do
+        if included then
+            if not prayerRanks[spellID] then return false end
+            prayer = true
+        end
+    end
+    return prayer == true
+end
+
+local function FindPrayerBorder(owner)
+    local store = owner.dfADFactory
+    for _, effect in pairs(store and store.border or {}) do
+        local handle = effect.handle
+        local cfg = handle and not handle._destroyed and handle.config
+        local filters = cfg and cfg.candidateFilters
+        if cfg and cfg.mode == "overlay" and cfg.enabled ~= false and not cfg.parentDrivenVisibility and not cfg.dfGate
+            and cfg.style and cfg.style.border and cfg.style.border.spec and filters
+            and IsPrayerFilter(filters.includeSpellIDs) then
+            return cfg
+        end
+    end
+end
+
+function M:SyncDandersPetPrayerBorder(frame)
+    if InCombatLockdown and InCombatLockdown() then self.pendingRoundedFrames = true; return end
+    if not Accessible(frame) or not frame.isPetFrame then return end
+    local owner = frame.ownerFrame
+    if Accessible(owner) then petByOwner[owner] = frame end
+    local danders = self:GetDanders()
+    local auraContainer = danders and danders.IS_FOREVER and danders.AuraContainer
+    local state = petPrayerBorders[frame]
+    local unit = frame.unit
+    local source = SUI:IntegrationEnabled("danders") and auraContainer and auraContainer.Create
+        and Public(unit) and type(unit) == "string" and Accessible(owner) and FindPrayerBorder(owner)
+    if not source then
+        if state then
+            state.handle:Destroy()
+            petPrayerBorders[frame] = nil
+        end
         return
     end
-    ReleaseThinDandersBorder(frame, thinState, repainted)
+    if frame.dfPetHidden == true and not state then return end
+
+    local width, height = frame:GetSize()
+    if not (PublicNumber(width) and PublicNumber(height) and width > 0 and height > 0) then return end
+    local filter, candidates = source.filter, source.candidateFilters
+    -- The native pet border sits 14 levels above the pet frame.
+    local level = source.frameLevelOffset and source.frameLevelOffset >= 11 and 15 or 9
+    local rebuild = not state or state.filter ~= filter or state.candidates ~= candidates or state.level ~= level
+    local restyle = rebuild or state.style ~= source.style or state.width ~= width or state.height ~= height
+    if restyle then
+        local style = { border = SUI.DeepCopy(source.style.border) }
+        for _, spec in ipairs({ style.border.spec, style.border.pandemicSpec }) do
+            spec.knownWidth, spec.knownHeight = width, height
+        end
+        if rebuild then
+            local config = {
+                unit = unit, mode = "overlay", filter = filter, candidateFilters = SUI.DeepCopy(candidates),
+                enabled = true, frameLevelOffset = level, adBorderAnim = source.adBorderAnim, style = style,
+            }
+            if state then
+                state.handle:Rebuild(config)
+            else
+                local handle = auraContainer:Create(frame, config)
+                if not handle then return end
+                state = { handle = handle }
+                petPrayerBorders[frame] = state
+            end
+        else
+            state.handle:ApplyStyle(style)
+        end
+        state.filter, state.candidates, state.level, state.style = filter, candidates, level, source.style
+        state.width, state.height = width, height
+    end
+    if not rebuild and state.unit ~= unit then state.handle:SetUnit(unit) end
+    state.unit = unit
+    self:SyncDandersAuraGlowHandle(frame, state.handle)
+end
+
+function M:QueueDandersPetPrayerBorder(frame)
+    if not frame or queuedPetPrayerBorders[frame] then return end
+    if InCombatLockdown and InCombatLockdown() then self.pendingRoundedFrames = true; return end
+    queuedPetPrayerBorders[frame] = true
+    SUI:After(0, self, "DandersFrames pet Prayer of Mending", function()
+        queuedPetPrayerBorders[frame] = nil
+        M:SyncDandersPetPrayerBorder(frame)
+    end)
 end
 
 function M:RefreshDandersRounded()
-    if not SUI:IntegrationEnabled("danders") then return end
     local danders = self:GetDanders()
     if not danders then return end
     local function Apply(mode, frame)
         local db = danders.GetFrameDB and danders:GetFrameDB(frame)
         self:ApplyDandersRoundedFrame(frame, db or self:GetBorderDB(mode))
     end
-    if type(danders.IteratePartyFrames) == "function" then
-        pcall(danders.IteratePartyFrames, danders, function(frame) Apply("party", frame) end)
+    if SUI:IntegrationEnabled("danders") then
+        if type(danders.IteratePartyFrames) == "function" then
+            pcall(danders.IteratePartyFrames, danders, function(frame) Apply("party", frame) end)
+        end
+        if type(danders.IterateArenaFrames) == "function" then
+            pcall(danders.IterateArenaFrames, danders, function(frame) Apply("party", frame) end)
+        end
+        if type(danders.IterateRaidFrames) == "function" then
+            pcall(danders.IterateRaidFrames, danders, function(frame) Apply("raid", frame) end)
+        end
+        for _, frame in pairs(danders.testPartyFrames or {}) do Apply("party", frame) end
+        for _, frame in pairs(danders.testRaidFrames or {}) do Apply("raid", frame) end
+    else
+        for _, state in pairs(auraGlows) do
+            if Accessible(state.layer) then RestoreAuraGlow(state) end
+        end
     end
-    if type(danders.IterateArenaFrames) == "function" then
-        pcall(danders.IterateArenaFrames, danders, function(frame) Apply("party", frame) end)
+    for _, pool in ipairs(petFramePools) do
+        for _, frame in pairs(danders[pool] or {}) do
+            SUI:SafeModuleCall(self, "DandersFrames pet shape", self.ApplyDandersRoundedFrame, frame)
+            SUI:SafeModuleCall(self, "DandersFrames pet Prayer of Mending", self.SyncDandersPetPrayerBorder, frame)
+        end
     end
-    if type(danders.IterateRaidFrames) == "function" then
-        pcall(danders.IterateRaidFrames, danders, function(frame) Apply("raid", frame) end)
-    end
-    for _, frame in pairs(danders.testPartyFrames or {}) do Apply("party", frame) end
-    for _, frame in pairs(danders.testRaidFrames or {}) do Apply("raid", frame) end
 end
 
 local function ManaAppearance()
@@ -515,6 +754,33 @@ function M:InstallRoundedHooks()
             hooksecurefunc(danders, "ApplyFrameBorder", function(_, frame, db)
                 SUI:SafeModuleCall(M, "DandersFrames border shape", M.ApplyDandersRoundedFrame, frame, db, true)
             end)
+        end
+        if type(danders.ApplyPetFrameStyle) == "function" then
+            hooksecurefunc(danders, "ApplyPetFrameStyle", function(_, frame)
+                if frame then
+                    SUI:SafeModuleCall(M, "DandersFrames pet shape", M.ApplyDandersRoundedFrame, frame, nil, true)
+                end
+            end)
+        end
+        local factory = danders.AuraDesigner and danders.AuraDesigner.Factory
+        if hooksecurefunc and danders.Border and type(danders.Border.Apply) == "function" then
+            hooksecurefunc(danders.Border, "Apply", function(_, native, spec)
+                if Public(native) and (auraGlows[native] or IsSoftAuraGlow(spec)) then
+                    SUI:SafeModuleCall(M, "DandersFrames aura glow shape", OnAuraBorderApplied, native, spec)
+                end
+            end)
+        end
+        if danders.IS_FOREVER and factory and type(factory.SyncFrame) == "function" and type(factory.ClearFrame) == "function"
+            and type(danders.UpdatePetFrame) == "function" then
+            hooksecurefunc(danders, "UpdatePetFrame", function(_, frame) M:QueueDandersPetPrayerBorder(frame) end)
+            local function RefreshOwnerPet(_, owner)
+                M:QueueDandersPetPrayerBorder(petByOwner[owner])
+            end
+            hooksecurefunc(factory, "SyncFrame", function(_, frame)
+                SUI:SafeModuleCall(M, "DandersFrames aura glow shape", M.RefreshDandersAuraGlows, frame)
+                RefreshOwnerPet(nil, frame)
+            end)
+            hooksecurefunc(factory, "ClearFrame", RefreshOwnerPet)
         end
         if type(danders.CreateFrameElementsExtended) == "function" then
             hooksecurefunc(danders, "CreateFrameElementsExtended", function(_, frame, db) M:ApplyDandersRoundedFrame(frame, db) end)

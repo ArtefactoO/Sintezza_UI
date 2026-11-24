@@ -680,6 +680,7 @@ function M:ConfigureStealthScene(active, style)
 end
 
 function M:PlayStealth(active, preview)
+    if SUI.notificationsAlertOwner then return false end
     self:StopStealthAnimations()
     local profile = self:Profile()
     if not profile then return false end
@@ -729,6 +730,7 @@ end
 function M:RefreshStealthState()
     self.stealthPlaySerial = (self.stealthPlaySerial or 0) + 1
     self:StopStealthAnimations()
+    if SUI.notificationsAlertOwner then return end
     local profile = self:Profile()
     if not profile or profile.enabled == false or profile.stealthEnabled == false then
         self.stealthed = false
@@ -808,6 +810,7 @@ function M:ConfigureScene(kind)
 end
 
 function M:Play(kind, preview)
+    if SUI.notificationsAlertOwner then return false end
     local profile = self:Profile()
     if not profile then return false end
     if not preview and profile.enabled == false then return false end
@@ -911,6 +914,7 @@ function M:OnProfileChanged()
     if detector and detector.initialized then
         SUI:SafeModuleCall(detector, "extra alert settings", detector.OnProfileChanged)
     end
+    if SUI.notificationsAlertOwner then return end
     self:ApplyAppearance()
     self:RefreshStealthState()
 end
@@ -923,4 +927,24 @@ function M:Initialize()
     SUI:RegisterModuleEvent(self, "PLAYER_REGEN_ENABLED")
     SUI:RegisterModuleEvent(self, "UPDATE_STEALTH")
     SUI:RegisterModuleEvent(self, "PLAYER_ENTERING_WORLD")
+end
+
+function SUI:ClaimNotificationsAlerts(owner)
+    if not self.initialized or type(owner) ~= "table" or type(owner.OpenSettings) ~= "function"
+        or type(owner.GetFeature) ~= "function" or type(owner.SetFeature) ~= "function" then return false end
+    if self.notificationsAlertOwner then return self.notificationsAlertOwner == owner end
+
+    self.notificationsAlertOwner = owner
+    if not self:SafeModuleCall(M, "notifications handoff", M.OnProfileChanged) then
+        self.notificationsAlertOwner = nil
+        self:SafeModuleCall(M, "restore UI alerts", M.OnProfileChanged)
+        self:RefreshModuleEvents()
+        return false
+    end
+    self:RefreshModuleEvents()
+    local settings = self.SettingsUI
+    if settings and settings.currentPage == "combatAlert" then
+        self:SafeModuleCall(settings, "notifications settings handoff", settings.SelectPage, "dashboard")
+    end
+    return true
 end

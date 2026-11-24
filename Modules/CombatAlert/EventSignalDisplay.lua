@@ -151,7 +151,7 @@ function M:StopExtraAlerts()
 end
 
 local function Play(self, kind, detail, preview)
-    if not definitions[kind] then return false end
+    if SUI.notificationsAlertOwner or not definitions[kind] then return false end
     local profile = self:GetExtraAlertProfile(kind)
     if not preview and profile.enabled ~= true then return false end
     self.extraAlerts = self.extraAlerts or {}

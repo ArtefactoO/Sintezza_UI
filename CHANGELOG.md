@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.0
+
+- Find the optional Shortest Path Forever onboard arrival countdown in the separate Sintezza Notifications addon.
+- Add a Display tab with separate switches for Blizzard combat text on the player and on targets in WoW Forever.
+- Add a Combat Text option on WoW Forever to hide Blizzard's incoming healing numbers, including self-heals.
+- Match the corners of Aura Designer effects using SUI Soft Rounded Glow to the rounded DandersFrames frame, including the Prayer of Mending glow on pets.
+- Group and raid pets can display the owner's Prayer of Mending border effect on WoW Forever.
+- DandersFrames pets follow the party or raid corner settings for health, power, backgrounds and solid borders.
+- Pause local combat, stealth, health and aggro signals when Sintezza Notifications takes ownership, and open its settings from the Alerts menu.
+- Show the detected OpenXP 2.x version and explain why the OpenXP 1.x routing and card localization integrations are unavailable.
+
 ## 1.6.2
 
 - Fixed debuff rules skipping names and health numbers when aura data is restricted, and applied spell filters when creating health bar and border overlays.

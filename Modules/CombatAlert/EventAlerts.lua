@@ -96,6 +96,7 @@ function M:SampleAggro(silent)
 end
 
 function M:OnUnitEvent(event, unit)
+    if SUI.notificationsAlertOwner then return end
     if not Public(unit, "string") or unit ~= "player" then return end
     if not PlayerAlive() then
         self.healthKnown, self.healthArmed, self.hasAggro = nil, nil, nil
@@ -139,6 +140,12 @@ end
 
 function M:OnProfileChanged()
     if not self.detectorReady then return end
+    if SUI.notificationsAlertOwner then
+        self.healthEnabled, self.aggroEnabled = false, false
+        self.healthKnown, self.healthArmed, self.hasAggro = nil, nil, nil
+        self:UpdateUnitEvents()
+        return
+    end
     local profile = SUI:GetModuleProfile("combatAlert")
     local health = profile and profile.healthAlert
     local aggro = profile and profile.aggroAlert
@@ -174,6 +181,7 @@ function M:OnProfileChanged()
 end
 
 function M:WantsEvent(event)
+    if SUI.notificationsAlertOwner then return false end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then return self.aggroEnabled end
     return self.healthEnabled or self.aggroEnabled
 end

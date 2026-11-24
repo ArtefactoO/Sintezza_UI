@@ -25,6 +25,8 @@ Open `/stheme` to choose the shared palette, interface font, heading font, and l
 
 ## Alerts
 
+When a compatible Sintezza Notifications is enabled, **Alerts** opens its settings and Sintezza UI pauses its alert renderer. If Notifications is disabled, **Alerts** opens the local settings and Sintezza UI uses its own saved alert profile.
+
 Under **Alerts**, choose swords, a crest, a slash, a flag, brackets, or a side panel. The combat crest and flag use your character's faction emblem when available. The **Stealth** tab has a separate style picker with the Squint eye, footprints, a mask, and mist among its options. Edit the four messages for combat and stealth and preview them at their in-game positions. Signals can follow the active theme palette or use the manual colors stored in the profile.
 
 The **Health** and **Aggro** tabs offer opt-in alerts with their own styles, captions, theme or manual colors, size, position, and preview. The health alert triggers when your health crosses the configured threshold and rearms once it recovers. The aggro alert triggers when you start holding enemy aggro in a dungeon or raid and rearms when you lose it. Both depend on the client making the readings available to addons.
@@ -42,6 +44,10 @@ The **Health** and **Aggro** tabs offer opt-in alerts with their own styles, cap
 | `/stheme` | Interface and heading fonts, palettes, and language |
 
 ## Combat text
+
+On WoW Forever, open `/sui fonts` and select **Display** to adjust Blizzard's combat text. **Text on me** includes scrolling text, healer names, shields, combat state, resource gains and other notifications. **Text on target** includes damage, auto-attacks, periodic effects, pet damage, healing, shields and target effects. These controls use the game's settings. After changing **Classic-style numbers**, run `/reload`.
+
+Enable **Hide incoming healing** under **Text on me** to hide self-heals and healing received from other players in Blizzard's scrolling combat text. This filter is saved in the Sintezza UI profile and works with the default combat font.
 
 Open `/sui fonts`, select a font in the preview, and click **Apply**. **Use font in Sintezza alerts** applies the choice to combat and stealth alerts immediately. Clear that option to use the fonts set in the alert module. To update numbers above targets after applying or restoring a font, return to character selection and log back in.
 
@@ -70,7 +76,7 @@ Use the search field at the top of `/sui` to find module pages and common settin
 
 **EllesmereUI nameplate example.** Set an aura rule for your specialization, then choose whether it colors the health bar, border, or supported text. A rule can require two debuffs and color multiple supported channels.
 
-**OpenXP and Shortest Path example.** Enable the Sintezza waypoint and guide following in Shortest Path. When OpenXP advances to a supported step with a destination, Sintezza can pass that point to Shortest Path and use its walking route. The active OpenXP pointer can be hidden during routing and restored when the route ends.
+**OpenXP 1.x and Shortest Path example.** Enable the Sintezza waypoint and guide following in Shortest Path. When OpenXP advances to a supported step with a destination, Sintezza can pass that point to Shortest Path and use its walking route. The active OpenXP pointer can be hidden during routing and restored when the route ends.
 
 ### EllesmereUI
 
@@ -98,6 +104,10 @@ Inspired by [EllesmereUI](https://www.curseforge.com/wow/addons/ellesmereui).
 
 Rounded styling supports Solid borders and the Sintezza thin rounded preset. Gradient and other textured presets use the DandersFrames renderer. The rounded layer reads the native border specification, including inset, offsets, thickness, opacity, and blend mode. The preview uses the same geometry helper.
 
+Group and raid pets inherit their layout's corner settings. Their health, power and background share the mask, and solid outlines keep the pet's configured color and thickness.
+
+On WoW Forever, pets also inherit a Prayer of Mending border effect from their owner's Aura Designer setup. Configure a border effect for Prayer of Mending in the group or raid layout. The native aura filter displays it when the spell is on the pet, using the effect's caster filter, color, and border texture.
+
 | Frame content | Rounded handling |
 | --- | --- |
 | Background, health, and missing-health fill | Included in the body mask. |
@@ -107,6 +117,7 @@ Rounded styling supports Solid borders and the Sintezza thin rounded preset. Gra
 | Native square border artwork | Receives a suppression mask outside combat. Native visibility and color updates retain that mask. |
 | Dispel indication | Compatible dispel gradients and rings have a separate shape adapter. |
 | Aggro indication | Compatible Solid aggro highlights have a separate rounded outline. |
+| Aura Designer borders | Effects using SUI Soft Rounded Glow follow the frame radius, including the inherited Prayer of Mending glow on pets. |
 | Selection, hover, text, and icons | Keep their own rendering. Selection and hover effects can retain square corners. |
 
 Masks are prepared outside combat. An already prepared frame keeps its masks during native border updates. A frame that first requires preparation during combat receives the adaptation after combat. A texture or overlay created later needs a subsequent supported refresh before it joins the mask.
@@ -117,9 +128,11 @@ The adapter checks whether frames and values are accessible. Restricted values a
 
 Find route and transport options under **Group & Map → Map and routes**, and teammate controls under **Party on the map**.
 
+Configure the onboard arrival countdown in **Sintezza Notifications → Transport** (`/snotify`).
+
 - **OpenMap.** Party positions and the party finder work on the stitched world map. Pick a teammate in the map menu to focus their marker, or their zone when only the zone is known. Sintezza's personal waypoint can be set from OpenMap as well as from the world-map canvas.
 - **Shortest Path Forever.** **Sintezza UI waypoint** lets Ctrl + left-click set a personal waypoint and start a route through the compatible Shortest Path API. Ctrl + right-click clears the point and can also clear the temporary OpenMap pin and active **WaypointUI** user navigation. **Gold route dots** replaces the walking route display with animated gold dots on both maps. This visual option is off by default and is available when Sintezza can use the Shortest Path route renderer. The two transport timer options use Shortest Path observations to show arrival and departure countdowns beside supported dock markers, including on the stitched OpenMap view where available. `/sui report` reports route integration status and point counts. [Shortest Path Forever](https://www.curseforge.com/wow/addons/shortest-path-forever) · [OpenMap](https://www.curseforge.com/wow/addons/openmap)
-- **OpenXP and Questie.** On the Russian Forever client, compatible OpenXP cards use Russian headings and standard step phrases. Matching quest, creature, object, item, and zone names are taken from client data, the OpenXP dictionary, or optional QuestieDB records. Free-form guide text keeps its original language. With the Sintezza personal waypoint and Shortest Path's RestedXP guide following enabled, Shortest Path can route to the current OpenXP step. Its **Hide RestedXP arrow** option can also hide the OpenXP pointer during that route, with visibility handed back when the journey ends. An active **RestedXP** integration keeps ownership of its own guide route. [OpenXP](https://www.curseforge.com/wow/addons/openxp-free-leveling-guides-for-wow-forever)
+- **OpenXP and Questie.** Sintezza's Shortest Path bridge and Russian card localization support OpenXP 1.x. OpenXP 2.0 uses a new guide engine with its own navigation. On the Russian Forever client, compatible OpenXP cards use Russian headings and standard step phrases. Matching quest, creature, object, item, and zone names are taken from client data, the OpenXP dictionary, or optional QuestieDB records. Free-form guide text keeps its original language. With the Sintezza personal waypoint and Shortest Path's RestedXP guide following enabled, Shortest Path can route to the current OpenXP step. Its **Hide RestedXP arrow** option can also hide the OpenXP pointer during that route, with visibility handed back when the journey ends. An active **RestedXP** integration keeps ownership of its own guide route. [OpenXP](https://www.curseforge.com/wow/addons/openxp-free-leveling-guides-for-wow-forever)
 - **FlowUp and ForeverGuide.** With **Sintezza UI waypoint** turned on, compatible single guide destinations can become Sintezza waypoints and feed Shortest Path. The adapter also accepts supported temporary markers from their TomTom-compatible bridge when standalone **TomTom** is absent. Multi-point ForeverGuide batches stay with the original provider.
 - **Addon whispers.** **System → Integrations → Sintezza UI → Hide addon whisper errors** filters missing-recipient errors matched to addon whispers when a manual whisper to the same player was absent. `/sui whisperlog` identifies known prefixes from ForeverGuide, FlowUp, OpenMap, and Shortest Path Forever, and shows the technical prefix for other tracked sends.
 

@@ -36,6 +36,7 @@ function GameBar:WantsEvent(event)
 end
 
 function Combat:WantsEvent(event)
+    if SUI.notificationsAlertOwner then return false end
     local profile = P("combatAlert")
     if not profile.enabled then return false end
     local stealth = profile.stealthEnabled and (profile.showStealthEnter or profile.showStealthLeave)
@@ -297,6 +298,8 @@ end
 function SUI:GetFeatureSetting(id)
     local def = self.featureByID[id]
     if not def then return false end
+    local owner = def.moduleKey == "combatAlert" and self.notificationsAlertOwner
+    if owner then return owner:GetFeature(id) end
     local node, key = Resolve(def)
     if not node then return false end
     if def.invert then return node[key] ~= true end
@@ -310,6 +313,8 @@ end
 function SUI:SetFeature(id, value)
     local def = self.featureByID[id]
     if not def or not self:GetFeatureAvailability(id) then return false end
+    local owner = def.moduleKey == "combatAlert" and self.notificationsAlertOwner
+    if owner then return owner:SetFeature(id, value) end
     local node, key = Resolve(def)
     if not node then return false end
     local enabled = value == true

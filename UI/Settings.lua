@@ -340,6 +340,11 @@ function UI:SelectPage(key, requestedTab)
     end
     local route = self.routes[key]
     if route then key, requestedTab = route.page, requestedTab or route.tab end
+    local owner = key == "combatAlert" and SUI.notificationsAlertOwner
+    if owner then
+        SUI:SafeModuleCall(owner, "open Notifications settings", owner.OpenSettings, requestedTab)
+        return self.pages[self.currentPage] or self.pages.dashboard, true
+    end
     if not self.pages[key] and self.definitions[key] then
         local definition = self.definitions[key]
         local host = CreateFrame("Frame", nil, self.content)
@@ -615,7 +620,8 @@ end
 function UI:Show(page, tab)
     local window = self:BuildWindow()
     windowAppearance:ApplyTo(window)
-    self:SelectPage(page or "dashboard", tab)
+    local _, redirected = self:SelectPage(page or "dashboard", tab)
+    if redirected then return end
     window:Show()
     window:Raise()
 end

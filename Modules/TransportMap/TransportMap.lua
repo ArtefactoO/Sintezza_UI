@@ -731,7 +731,8 @@ function M:OnEvent(event, addon)
         if event == "PLAYER_REGEN_DISABLED" then self:UpdateMinimap() else self:QueueMinimap() end
         return
     end
-    if event == "ADDON_LOADED" and addon ~= "ShortestPathForever" and addon ~= "Blizzard_WorldMap" and addon ~= "OpenMap" then return end
+    if event == "ADDON_LOADED" and addon ~= "ShortestPathForever" and addon ~= "Blizzard_WorldMap"
+        and addon ~= "OpenMap" then return end
     self.minimapEnabled = SUI:GetFeature("transportMap.minimap")
     self:QueueMinimap()
     self:UpdateDriver()

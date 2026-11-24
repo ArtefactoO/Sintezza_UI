@@ -256,14 +256,23 @@ Add(shortestPath, "mini", "Таймеры транспорта на миника
     feature = "transportMap.minimap", addons = { shortest }, client = "forever",
     probe = function() return type(_G.ShortestPathForeverDB) == "table" and _G.Minimap ~= nil end,
 })
+local function OpenXPCompatibilityReason()
+    local version = SUI:GetAddonVersion("OpenXP")
+    if type(version) == "string" and version:match("^2%.") then
+        return Text("OpenXP %s загружен. Интеграция Sintezza использует API OpenXP 1.x.",
+            "OpenXP %s is loaded. This Sintezza integration uses the OpenXP 1.x API."):format(version)
+    end
+end
+
 Add(openXP, "openxp", "Маршрут к текущему шагу OpenXP", "Route to the current OpenXP step", {
     description = Text("Строит маршрут к выбранному шагу гайда OpenXP.", "Routes to the current OpenXP guide step."),
     addons = { "OpenXP", shortest }, client = "forever", parent = "mapWaypointControls", refresh = { "mapWaypointControls" },
     probe = function()
         local module = SUI:GetModule("mapWaypointControls")
         local guide = _G.RXP
-        return module and module:GetOpenXPRouteAPI() and guide and guide.arrowFrame
-            and Function(guide.UpdateMap) and Function(guide.UpdateGotoSteps)
+        if module and module:GetOpenXPRouteAPI() and guide and guide.arrowFrame
+            and Function(guide.UpdateMap) and Function(guide.UpdateGotoSteps) then return true end
+        return false, OpenXPCompatibilityReason()
     end,
     conflict = function() return SUI:IsAddonLoaded("RXPGuides") and "RestedXP" end,
     notice = function()
@@ -277,7 +286,8 @@ Add(openXP, "questie", "Русские подписи в карточке OpenXP
     addons = { "OpenXP" }, client = "forever", locale = "ruRU", reload = true,
     probe = function()
         local module = SUI:GetModule("openXPLocalization")
-        return module and module.GetGuide and module:GetGuide()
+        if module and module.GetGuide and module:GetGuide() then return true end
+        return false, OpenXPCompatibilityReason()
     end,
     description = Text("QuestieDB дополняет названия при наличии.", "QuestieDB supplements matching names when installed."),
 })
@@ -394,10 +404,13 @@ function SUI:GetIntegrationStatus(row)
         return false, Text("Управляет другой аддон", "Managed by another addon"), conflict, "warning"
     end
     if row.probe and not fallback then
-        local ok, compatible = pcall(row.probe)
+        local ok, compatible, unavailableReason = pcall(row.probe)
         if not ok or not compatible then
             fallback = row.fallback and row.fallback()
-            if not fallback then return false, Text("API недоступен", "API unavailable"), row.description, "warning" end
+            if not fallback then
+                local status = ok and type(unavailableReason) == "string" and unavailableReason
+                return false, status or Text("API недоступен", "API unavailable"), row.description, "warning"
+            end
         end
     end
     local enabled = self:GetIntegrationSetting(row)

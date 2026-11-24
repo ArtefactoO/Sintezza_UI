@@ -66,6 +66,63 @@ function M:Profile()
     return SUI:GetModuleProfile("combatFont")
 end
 
+function M:CanSetCombatTextCVar(name)
+    if not (SUI.isForever and C_CVar and C_CVar.GetCVarInfo and C_CVar.GetCVarBool and C_CVar.SetCVar) then
+        return false
+    end
+    local _, default, _, _, locked, secure, readOnly = C_CVar.GetCVarInfo(name)
+    return (default == "0" or default == "1") and not (locked or secure or readOnly)
+end
+
+function M:SetCombatTextCVar(name, enabled)
+    if InCombatLockdown() or not self:CanSetCombatTextCVar(name) then return false end
+    if C_CVar.GetCVarBool(name) == enabled then return true end
+
+    local setting = name == "enableFloatingCombatText" and Settings and Settings.GetSetting
+        and Settings.GetSetting(name)
+    if setting then
+        -- The native setting's callback loads and enables Blizzard's scrolling text.
+        setting:SetValue(enabled)
+    elseif C_CVar.SetCVar(name, enabled and "1" or "0") and UpdateFloatingCombatTextSafe then
+        UpdateFloatingCombatTextSafe()
+    end
+    return C_CVar.GetCVarBool(name) == enabled
+end
+
+local healingEvents = {
+    HEAL = true,
+    HEAL_CRIT = true,
+    HEAL_ABSORB = true,
+    HEAL_CRIT_ABSORB = true,
+    PERIODIC_HEAL = true,
+    PERIODIC_HEAL_CRIT = true,
+    PERIODIC_HEAL_ABSORB = true,
+}
+
+function M:UpdateHealingFilter()
+    self.hideIncomingHealing = SUI.isForever and self:Profile().hideIncomingHealing == true
+    if not self.hideIncomingHealing or InCombatLockdown() then return end
+
+    local frame = _G.CombatText
+    if not frame or frame == self.healingFilterFrame or type(hooksecurefunc) ~= "function"
+        or type(frame.HookScript) ~= "function" or type(frame.InitializeFontString) ~= "function" then return end
+
+    local line
+    -- Blizzard initializes a new line before adding it to the active list in the same event.
+    hooksecurefunc(frame, "InitializeFontString", function(_, fontString)
+        line = self.hideIncomingHealing and fontString or nil
+    end)
+    frame:HookScript("OnEvent", function(_, event, kind)
+        local newLine = line
+        line = nil
+        if not newLine or not self.hideIncomingHealing or event ~= "COMBAT_TEXT_UPDATE"
+            or (issecretvalue and issecretvalue(kind)) or not healingEvents[kind] then return end
+        local active = frame.activeFontStrings
+        if active and active[#active] == newLine then newLine:Hide() end
+    end)
+    self.healingFilterFrame = frame
+end
+
 function M:OtherOwner()
     if SUI:IsAddonLoaded("FontMagic") then return "FontMagic" end
 end
@@ -254,6 +311,7 @@ end
 function M:Update()
     local previous = self.alertPath
     self.status = self:Apply()
+    self:UpdateHealingFilter()
     if previous ~= self.alertPath and SUI.CombatAlert then
         SUI.CombatAlert:ApplyAppearance()
         SUI.CombatAlert:ApplyStealthAppearance()
@@ -269,6 +327,8 @@ function M:WantsEvent(event)
     if event == "PLAYER_REGEN_ENABLED" then return self.pending end
     if event == "PLAYER_ENTERING_WORLD" and not self.firstWorld then return false end
     local profile = self:Profile()
+    if (event == "ADDON_LOADED" or event == "PLAYER_LOGIN") and self.hideIncomingHealing
+        and not self.healingFilterFrame then return true end
     return profile and profile.enabled and profile.font ~= "DEFAULT"
 end
 

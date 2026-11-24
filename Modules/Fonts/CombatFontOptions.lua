@@ -28,6 +28,76 @@ local owners = {
         "FontMagic overrides combat numbers. Disable it and log back in."),
 }
 
+local onSelf = {
+    { "floatingCombatTextDodgeParryMiss_v2", "Уклонения, парирования и промахи", "Dodges, parries and misses" },
+    { "floatingCombatTextDamageReduction_v2", "Снижение урона", "Damage reduction",
+        "Показывает блокирование, сопротивление и поглощение урона.", "Shows blocks, resists and absorbs." },
+    { "floatingCombatTextFriendlyHealers_v2", "Имена лекарей", "Healer names" },
+    { "floatingCombatTextCombatHealingAbsorbSelf_v2", "Щиты на себе", "Shields on you" },
+    { "floatingCombatTextCombatState_v2", "Вход в бой и выход из боя", "Entering and leaving combat" },
+    { "floatingCombatTextLowManaHealth_v2", "Мало здоровья или маны", "Low health or mana" },
+    { "floatingCombatTextEnergyGains_v2", "Получение ресурсов", "Power gains" },
+    { "floatingCombatTextPeriodicEnergyGains_v2", "Периодическое получение ресурсов", "Periodic power gains" },
+    { "floatingCombatTextComboPoints_v2", "Очки серии приемов", "Combo points" },
+    { "floatingCombatTextReactives_v2", "Срабатывания способностей", "Reactive abilities" },
+    { "floatingCombatTextAuras_v2", "Эффекты на себе", "Auras on you" },
+    { "floatingCombatTextRepChanges_v2", "Изменения репутации", "Reputation changes" },
+    { "floatingCombatTextHonorGains_v2", "Получение чести", "Honor gains" },
+}
+
+local onTarget = {
+    { "floatingCombatTextCombatDamage_v2", "Исходящий урон", "Outgoing damage" },
+    { "floatingCombatTextCombatDamageAllAutos_v2", "Все автоатаки", "All auto-attacks" },
+    { "floatingCombatTextCombatLogPeriodicSpells_v2", "Периодические эффекты", "Periodic effects" },
+    { "floatingCombatTextPetMeleeDamage_v2", "Автоатаки питомца", "Pet melee damage" },
+    { "floatingCombatTextPetSpellDamage_v2", "Урон способностей питомца", "Pet spell damage" },
+    { "floatingCombatTextCombatHealing_v2", "Исходящее лечение", "Outgoing healing" },
+    { "floatingCombatTextCombatHealingAbsorbTarget_v2", "Щиты на цели", "Shields on targets" },
+    { "floatingCombatTextSpellMechanics_v2", "Эффекты на цели", "Target effects" },
+    { "floatingCombatTextSpellMechanicsOther_v2", "Эффекты других игроков", "Other players’ target effects" },
+    { "classicStyleWorldText", "Классический стиль цифр", "Classic-style numbers",
+        "После смены стиля выполни /reload.", "Run /reload after changing the style." },
+}
+
+local function AddCombatTextToggle(page, section, key, ru, en, helpRu, helpEn)
+    if not M:CanSetCombatTextCVar(key) then return end
+    local row = W:Toggle(section, Text(ru, en), function()
+        return C_CVar.GetCVarBool(key)
+    end, function(value)
+        if not M:SetCombatTextCVar(key, value) then
+            SUI:Print(Text("Не удалось изменить настройку боевого текста.", "Could not change the combat text setting."))
+        end
+        page:Refresh()
+    end, helpRu and Text(helpRu, helpEn), true)
+    W:BindAvailability(row, function()
+        if InCombatLockdown() then
+            return false, Text("Настройка доступна вне боя.", "Available outside combat.")
+        end
+        return true
+    end)
+    B:AddRow(page, section, row)
+end
+
+local function BuildDisplay(page)
+    local columns = B:BeginColumns(page, "display")
+    local playerText = B:AddColumnSection(page, columns, "left", Text("Текст на себе", "Text on me"))
+    AddCombatTextToggle(page, playerText, "enableFloatingCombatText", "Прокручиваемый текст для себя", "Scrolling combat text for self")
+    B:AddRow(page, playerText, W:Toggle(playerText, Text("Скрывать входящее лечение", "Hide incoming healing"),
+        function() return M:Profile().hideIncomingHealing == true end, function(value)
+            M:Profile().hideIncomingHealing = value
+            M:Update()
+            page:Refresh()
+        end, Text("Скрывает цифры самолечения и лечения от других игроков в стандартном тексте боя.",
+            "Hides numbers from self-healing and healing received from other players in Blizzard combat text."), true))
+    for _, option in ipairs(onSelf) do AddCombatTextToggle(page, playerText, unpack(option)) end
+    B:FinishCard(page, "display", playerText)
+
+    local target = B:AddColumnSection(page, columns, "right", Text("Текст на цели", "Text on target"))
+    for _, option in ipairs(onTarget) do AddCombatTextToggle(page, target, unpack(option)) end
+    B:FinishCard(page, "display", target)
+    B:FinishColumns(page, "display", columns)
+end
+
 local function PreviewFont(label, path, size, flags)
     if path then
         local ok, result = pcall(label.SetFont, label, path, size, flags)
@@ -39,7 +109,10 @@ end
 
 local function BuildPage(parent)
     local title = Text("Боевой текст", "Combat text")
-    local page = B:CreateTabbedPage(parent, title, nil, { { key = "font" } }, true)
+    local tabs = { { key = "font", title = Text("Шрифт", "Font") } }
+    if SUI.isForever then tabs[#tabs + 1] = { key = "display", title = Text("Отображение", "Display") } end
+    local page = B:CreateTabbedPage(parent, title, nil, tabs, not SUI.isForever)
+    if SUI.isForever then BuildDisplay(page) end
     local controls = B:BeginColumns(page, "font", 8)
     local enabled = W:Toggle(controls, Text("Заменять боевой шрифт", "Override combat font"),
         function() return M:Profile().enabled end, function(value)
