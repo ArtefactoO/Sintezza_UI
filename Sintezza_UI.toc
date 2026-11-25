@@ -4,7 +4,7 @@
 ## Notes-ruRU: Панели, оформление интерфейса и инструменты для рейдов.
 ## Author: Sintezza
 ## X-License: MIT
-## Version: 1.7.0
+## Version: 1.7.1
 ## SavedVariables: Sintezza_UIDB
 ## LoadSavedVariablesFirst: 1
 ## Dependencies: Sintezza_Theme
@@ -99,6 +99,7 @@ Modules\TransportMap\TransportMap.lua
 Modules\ChatWhisperErrors.lua
 Modules\MapWaypointControls.lua
 Modules\OpenXPLocalization.lua
+Modules\QuestonDialogue.lua
 Modules\ShortestPathMinimap.lua
 
 Features.lua

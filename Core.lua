@@ -4,7 +4,7 @@ _G.Sintezza_UI = SUI
 SUI.name = ADDON_NAME
 SUI.title = "Sintezza UI"
 SUI.icon = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
-SUI.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.7.0"
+SUI.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.7.1"
 local interface = GetBuildInfo and select(4, GetBuildInfo())
 SUI.isForever = type(interface) == "number" and interface >= 16000 and interface < 17000
 SUI.modules = {}

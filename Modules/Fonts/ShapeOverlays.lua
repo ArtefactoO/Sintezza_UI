@@ -145,6 +145,12 @@ local function AddMask(texture, mask)
     return ok and HasMask(texture, mask) ~= false
 end
 
+local function RoundedMaskShape(path)
+    if not path then return end
+    local radius, corners = path:match("/ellesmereui/media/rounded/rounded%-(%d+)%-?(%d*)")
+    if radius then return tonumber(radius), tonumber(corners) or 15 end
+end
+
 local function NativeHealthMask(texture)
     local count = GetMaskCount(texture)
     if count == nil then return end
@@ -152,12 +158,21 @@ local function NativeHealthMask(texture)
     for index = 1, count do
         local mask = GetMaskAt(texture, index)
         local path = mask and TexturePath(mask)
-        local radius, corners
-        if path then radius, corners = path:match("/ellesmereui/media/rounded/rounded%-(%d+)%-?(%d*)") end
-        if radius then return mask, tonumber(radius), tonumber(corners) or 15, true end
+        local radius, corners = RoundedMaskShape(path)
+        if radius then return mask, radius, corners, true end
         if not path then readable = false end
     end
     return nil, nil, nil, readable
+end
+
+local function FindPlayerBodyMask(...)
+    for index = 1, select("#", ...) do
+        local mask = select(index, ...)
+        if not (issecretvalue and issecretvalue(mask)) and mask and mask:GetObjectType() == "MaskTexture" then
+            local radius, corners = RoundedMaskShape(TexturePath(mask))
+            if radius then return mask, radius, corners, true end
+        end
+    end
 end
 
 local function PlayerHealthMask(health)
@@ -166,22 +181,49 @@ local function PlayerHealthMask(health)
     local ok, fill = pcall(health.GetStatusBarTexture, health)
     if ok and not (issecretvalue and issecretvalue(fill)) then
         local native, r, c, fillReadable = NativeHealthMask(fill)
-        return native, r, c, fillReadable or readable
+        if native then return native, r, c, true end
+        readable = readable or fillReadable
+    end
+    -- The rounded renderer disables the player's rectangular clip while its
+    -- body mask is active. The mask itself lives on the unit frame.
+    local clip = health:GetParent()
+    if (issecretvalue and issecretvalue(clip)) or not clip then return nil, nil, nil, readable end
+    local owner = clip:GetParent()
+    if issecretvalue and issecretvalue(owner) then return nil, nil, nil, readable end
+    if owner and owner._euiBaseUnit == "player" and owner._barClip == clip and clip.DoesClipChildren then
+        local clipping = clip:DoesClipChildren()
+        if not (issecretvalue and issecretvalue(clipping)) then
+            if clipping then return nil, nil, nil, true end
+            return FindPlayerBodyMask(owner:GetRegions())
+        end
     end
     return nil, nil, nil, readable
 end
 
-local function FitPlayerDispelMask(texture, state, native, radius, corners)
+local function FitPlayerDispelMask(kit, texture, state, native, radius, corners, restyling)
     local mask = state.mask
     local attached = state.attached and HasMask(texture, mask) ~= false
-    if attached and state.native == native and state.radius == radius and state.corners == corners then return end
+    if not native and not attached then return end
+    if not restyling and attached and state.native == native and state.radius == radius and state.corners == corners then return end
+    if kit.CanTouchButton and not kit.CanTouchButton(state.button) then
+        if kit.DeferRestyle then kit.DeferRestyle(state.key) end
+        return
+    end
     if attached then texture:RemoveMaskTexture(mask) end
     state.attached = nil
     if not native then return end
-    SetRoundedMaskArt(mask, radius, corners)
-    mask:ClearAllPoints()
-    mask:SetAllPoints(native)
-    state.native, state.radius, state.corners = native, radius, corners
+    if not mask then
+        if not state.button.CreateMaskTexture then return end
+        mask = state.button:CreateMaskTexture()
+        if mask.SetBlockingLoadsRequested then mask:SetBlockingLoadsRequested(true) end
+        state.mask = mask
+    end
+    if state.native ~= native or state.radius ~= radius or state.corners ~= corners then
+        SetRoundedMaskArt(mask, radius, corners)
+        mask:ClearAllPoints()
+        mask:SetAllPoints(native)
+        state.native, state.radius, state.corners = native, radius, corners
+    end
     state.attached = AddMask(texture, mask)
 end
 
@@ -200,40 +242,35 @@ local function InstallPlayerDispelMasks(eui)
         hooksecurefunc(style, "applyExtra", function(button, data, currentStyle)
             local texture, health = data.overlay, currentStyle.healthFrame
             if not (texture and health and SUI:IntegrationEnabled("frames")) then return end
-            -- Capture the actual gradient while AuraKit is styling its slot. The
-            -- mask lives with that texture even when the button becomes restricted.
             SUI:SafeModuleCall(M, "player dispel overlay mask", function()
                 local state = playerDispelMasks[texture]
                 if not state then
-                    if kit.CanTouchButton and not kit.CanTouchButton(button) then
-                        if kit.DeferRestyle then kit.DeferRestyle(key) end
-                        return
-                    end
-                    if not button.CreateMaskTexture then return end
-                    state = { mask = button:CreateMaskTexture(), health = health }
+                    state = { button = button, health = health, key = key }
                     playerDispelMasks[texture] = state
                 end
                 local native, radius, corners, readable = PlayerHealthMask(health)
-                if readable or native then FitPlayerDispelMask(texture, state, native, radius, corners) end
+                if readable then FitPlayerDispelMask(kit, texture, state, native, radius, corners, true) end
             end)
         end)
     end
 
     hooksecurefunc(kit, "MakeInitializer", HookStyle)
     hooksecurefunc(kit, "RestyleSoon", HookStyle)
-    hooksecurefunc(eui, "RoundCorners", function(owner)
-        if not (owner and owner._euiBaseUnit == "player" and owner.Health) then return end
+    local function SyncPlayerDispelMasks(owner)
+        if not (owner and owner._euiBaseUnit == "player" and owner.Health and SUI:IntegrationEnabled("frames")) then return end
         local health = owner.Health
-        local native, radius, corners, readable = PlayerHealthMask(health)
-        if not (native or readable) then return end
-        for texture, state in pairs(playerDispelMasks) do
-            if state.health == health then
-                SUI:SafeModuleCall(M, "player dispel overlay shape", function()
-                    FitPlayerDispelMask(texture, state, native, radius, corners)
-                end)
+        SUI:SafeModuleCall(M, "player dispel overlay shape", function()
+            local native, radius, corners, readable = PlayerHealthMask(health)
+            if not readable then return end
+            for texture, state in pairs(playerDispelMasks) do
+                if state.health == health then
+                    FitPlayerDispelMask(kit, texture, state, native, radius, corners)
+                end
             end
-        end
-    end)
+        end)
+    end
+    hooksecurefunc(eui, "RoundCorners", SyncPlayerDispelMasks)
+    if type(eui.RoundedSetCorners) == "function" then hooksecurefunc(eui, "RoundedSetCorners", SyncPlayerDispelMasks) end
     for key in pairs(kit.styles) do
         if type(key) == "string" and key:match("^uf:player:dispelfill:") then kit.RestyleSoon(key) end
     end

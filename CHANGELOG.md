@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1
+
+- Improve the contrast of Queston Forever's quest chain counter in DialogueUI's dark theme.
+- Keep the EllesmereUI player's dispel gradient inside the rounded frame when health texture mask data is unavailable or the slot is restyled.
+
 ## 1.7.0
 
 - Find the optional Shortest Path Forever onboard arrival countdown in the separate Sintezza Notifications addon.
